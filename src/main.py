@@ -23,6 +23,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from src.core.packet_reassembly.packet_reassembler import PacketReassembler
 from src.core.traffic_analysis.traffic_analyzer import TrafficAnalyzer
 from src.core.anomaly_detection.anomaly_detector import AnomalyDetector
+from src.core.event_manager.event_manager import EventManager, Event
+from src.core.report_generator.report_generator import ReportGenerator
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, 
@@ -63,7 +65,9 @@ class SuriVisor:
             "analysis": {
                 "packet_reassembly_enabled": True,
                 "anomaly_detection_enabled": True,
-                "traffic_analysis_enabled": True
+                "traffic_analysis_enabled": True,
+                "event_manager_enabled": True,
+                "report_generator_enabled": True
             },
             "ui": {
                 "web_server_port": 8080,
@@ -87,6 +91,8 @@ class SuriVisor:
         self.packet_reassembler = None
         self.traffic_analyzer = None
         self.anomaly_detector = None
+        self.event_manager = None
+        self.report_generator = None
         
         # 系统状态
         self.running = False
@@ -173,6 +179,26 @@ class SuriVisor:
                     alert_callback=self.handle_alert
                 )
             
+            # 初始化事件管理器
+            if self.config["analysis"]["event_manager_enabled"]:
+                logger.info("初始化事件管理器...")
+                self.event_manager = EventManager(
+                    max_queue_size=1000,
+                    worker_threads=2
+                )
+                # 注册事件处理器
+                self.event_manager.register_handler(self.handle_event)
+            
+            # 初始化报告生成器
+            if self.config["analysis"]["report_generator_enabled"]:
+                logger.info("初始化报告生成器...")
+                reports_dir = os.path.join(self.config["general"]["data_dir"], "reports")
+                templates_dir = os.path.join(os.path.dirname(__file__), '../templates')
+                self.report_generator = ReportGenerator(
+                    output_dir=reports_dir,
+                    template_dir=templates_dir
+                )
+            
             logger.info("所有组件初始化完成")
             return True
         except Exception as e:
@@ -188,8 +214,6 @@ class SuriVisor:
         """
         logger.warning(f"收到告警: {alert_info['description']} - 值: {alert_info['value']:.4f}, 阈值: {alert_info['threshold']:.4f}")
         
-        # TODO: 实现更多告警处理逻辑，如发送邮件、短信等
-        
         # 保存告警到文件
         alerts_dir = os.path.join(self.config["general"]["data_dir"], "alerts")
         os.makedirs(alerts_dir, exist_ok=True)
@@ -200,6 +224,226 @@ class SuriVisor:
                 json.dump(alert_info, f, indent=4)
         except Exception as e:
             logger.error(f"保存告警信息失败: {e}")
+        
+        # 如果事件管理器已初始化，发送告警事件
+        if self.event_manager:
+            self.event_manager.create_and_emit_event(
+                event_type="alert",
+                source="anomaly_detector",
+                priority=self._get_alert_priority(alert_info),
+                data=alert_info
+            )
+    
+    def _get_alert_priority(self, alert_info):
+        """
+        根据告警严重程度获取优先级
+        
+        Args:
+            alert_info (dict): 告警信息
+            
+        Returns:
+            int: 优先级，数字越小优先级越高
+        """
+        severity = alert_info.get("severity", "medium").lower()
+        if severity == "critical":
+            return 0
+        elif severity == "high":
+            return 1
+        elif severity == "medium":
+            return 2
+        elif severity == "low":
+            return 3
+        else:
+            return 2  # 默认为中等优先级
+    
+    def handle_event(self, event):
+        """
+        处理事件
+        
+        Args:
+            event (Event): 事件对象
+        """
+        logger.info(f"处理事件: {event}")
+        
+        # 根据事件类型处理
+        if event.event_type == "alert":
+            # 告警事件处理
+            self._handle_alert_event(event)
+        elif event.event_type == "attack":
+            # 攻击事件处理
+            self._handle_attack_event(event)
+        elif event.event_type == "system":
+            # 系统事件处理
+            self._handle_system_event(event)
+        else:
+            logger.warning(f"未知事件类型: {event.event_type}")
+    
+    def _handle_alert_event(self, event):
+        """
+        处理告警事件
+        
+        Args:
+            event (Event): 告警事件对象
+        """
+        logger.info(f"处理告警事件: {event.id}")
+        alert_data = event.data
+        
+        # 记录告警信息
+        alert_file = os.path.join(
+            self.config["general"]["data_dir"],
+            f"alerts/alert_{event.id}.json"
+        )
+        os.makedirs(os.path.dirname(alert_file), exist_ok=True)
+        
+        try:
+            with open(alert_file, 'w') as f:
+                json.dump(event.to_dict(), f, indent=4)
+            logger.info(f"告警信息已保存到{alert_file}")
+        except Exception as e:
+            logger.error(f"保存告警信息失败: {e}")
+        
+        # 根据告警严重程度采取不同措施
+        severity = alert_data.get("severity", "medium").lower()
+        if severity in ["critical", "high"]:
+            # 对于高严重性告警，可以触发额外的响应措施
+            # 例如发送邮件通知、短信通知等
+            logger.warning(f"高严重性告警: {alert_data.get('description', '未知告警')}")
+            
+            # 如果配置了报告生成器，生成告警报告
+            if self.report_generator:
+                self._generate_alert_report(event)
+    
+    def _handle_attack_event(self, event):
+        """
+        处理攻击事件
+        
+        Args:
+            event (Event): 攻击事件对象
+        """
+        logger.warning(f"检测到攻击: {event.id}")
+        attack_data = event.data
+        
+        # 记录攻击信息
+        attack_file = os.path.join(
+            self.config["general"]["data_dir"],
+            f"attacks/attack_{event.id}.json"
+        )
+        os.makedirs(os.path.dirname(attack_file), exist_ok=True)
+        
+        try:
+            with open(attack_file, 'w') as f:
+                json.dump(event.to_dict(), f, indent=4)
+            logger.info(f"攻击信息已保存到{attack_file}")
+        except Exception as e:
+            logger.error(f"保存攻击信息失败: {e}")
+        
+        # 根据攻击类型和严重程度采取不同措施
+        attack_type = attack_data.get("attack_type", "unknown")
+        severity = attack_data.get("severity", "medium").lower()
+        
+        logger.warning(f"攻击类型: {attack_type}, 严重程度: {severity}")
+        
+        # 如果配置了报告生成器，生成攻击报告
+        if self.report_generator:
+            self._generate_attack_report(event)
+    
+    def _handle_system_event(self, event):
+        """
+        处理系统事件
+        
+        Args:
+            event (Event): 系统事件对象
+        """
+        logger.info(f"处理系统事件: {event.id}")
+        system_data = event.data
+        
+        # 根据系统事件类型处理
+        event_subtype = system_data.get("subtype", "unknown")
+        
+        if event_subtype == "startup":
+            logger.info("系统启动事件")
+        elif event_subtype == "shutdown":
+            logger.info("系统关闭事件")
+        elif event_subtype == "config_change":
+            logger.info(f"配置变更事件: {system_data.get('details', {})}")
+        else:
+            logger.info(f"未知系统事件子类型: {event_subtype}")
+    
+    def _generate_alert_report(self, event):
+        """
+        生成告警报告
+        
+        Args:
+            event (Event): 告警事件对象
+        """
+        try:
+            report_data = {
+                "timestamp": time.time(),
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "event": event.to_dict(),
+                "system_status": "running" if self.running else "stopped"
+            }
+            
+            # 生成报告文件名
+            report_file = os.path.join(
+                self.config["general"]["data_dir"],
+                f"reports/alert_report_{event.id}.html"
+            )
+            
+            # 使用报告生成器生成HTML报告
+            # 检查report_generator是否为None并且有generate_report方法
+            if self.report_generator and hasattr(self.report_generator, 'generate_report'):
+                self.report_generator.generate_report(
+                data=report_data,
+                report_type="html",
+                output_file=report_file
+            )
+            else:
+                logger.error("报告生成器未初始化或不支持generate_report方法")
+                return False
+                
+            logger.info(f"告警报告已生成: {report_file}")
+        except Exception as e:
+            logger.error(f"生成告警报告失败: {e}")
+    
+    def _generate_attack_report(self, event):
+        """
+        生成攻击报告
+        
+        Args:
+            event (Event): 攻击事件对象
+        """
+        try:
+            report_data = {
+                "timestamp": time.time(),
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "event": event.to_dict(),
+                "system_status": "running" if self.running else "stopped",
+                "traffic_analysis": self.traffic_analyzer.get_statistics() if self.traffic_analyzer else None,
+                "anomaly_detection": self.anomaly_detector.generate_anomaly_report() if self.anomaly_detector else None
+            }
+            
+            # 生成报告文件名
+            report_file = os.path.join(
+                self.config["general"]["data_dir"],
+                f"reports/attack_report_{event.id}.html"
+            )
+            
+            # 使用报告生成器生成HTML报告
+            # 检查report_generator是否为None并且有generate_report方法
+            if self.report_generator and hasattr(self.report_generator, 'generate_report'):
+                self.report_generator.generate_report(
+                data=report_data,
+                report_type="html",
+                output_file=report_file
+            )
+            else:
+                logger.error("报告生成器未初始化或不支持generate_report方法")
+                return False
+            
+            logger.info(f"攻击报告已生成: {report_file}")
+        except Exception as e:
+            logger.error(f"生成攻击报告失败: {e}")
     
     def start(self):
         """
@@ -219,6 +463,10 @@ class SuriVisor:
         # 启动异常检测
         if self.anomaly_detector:
             self.anomaly_detector.start_monitoring()
+        
+        # 启动事件管理器
+        if self.event_manager:
+            self.event_manager.start()
         
         # 设置运行状态
         self.running = True
@@ -247,6 +495,10 @@ class SuriVisor:
         if self.anomaly_detector:
             self.anomaly_detector.stop_monitoring()
         
+        # 停止事件管理器
+        if self.event_manager:
+            self.event_manager.stop()
+        
         # 等待处理线程结束
         if self.processing_thread:
             self.processing_thread.join(timeout=5)
@@ -260,12 +512,108 @@ class SuriVisor:
         """
         while self.running:
             try:
-                # TODO: 实现实时流量处理逻辑
+                # 实现实时流量处理逻辑
+                # 1. 模拟获取网络数据包
+                packets = self._capture_network_packets()
+                
+                if packets:
+                    # 2. 数据包重组
+                    if self.packet_reassembler:
+                        reassembled_flows = {}
+                        for packet in packets:
+                            flow_id = self._get_flow_id(packet)
+                            seq_num = packet.get('seq_num', 0)
+                            data = packet.get('data', b'')
+                            is_last = packet.get('is_last', False)
+                            
+                            self.packet_reassembler.add_fragment(flow_id, seq_num, data, is_last)
+                            
+                            # 尝试重组完整流
+                            if is_last or len(self.packet_reassembler.fragments[flow_id]) > 10:
+                                reassembled_data = self.packet_reassembler.reassemble_flow(flow_id)
+                                if reassembled_data:
+                                    reassembled_flows[flow_id] = reassembled_data
+                    
+                    # 3. 流量分析
+                    if self.traffic_analyzer and reassembled_flows:
+                        for flow_id, flow_data in reassembled_flows.items():
+                            # 提取流量特征
+                            features = self.traffic_analyzer.extract_features(flow_id, flow_data)
+                            
+                            # 分类流量
+                            classification = self.traffic_analyzer.classify_flow(flow_id, features)
+                            
+                            # 如果检测到攻击，创建事件
+                            if classification and classification.get('is_attack', False):
+                                if self.event_manager:
+                                    self.event_manager.create_and_emit_event(
+                                        event_type="attack",
+                                        source="traffic_analyzer",
+                                        priority=self._get_attack_priority(classification),
+                                        data=classification
+                                    )
+                    
+                    # 4. 异常检测
+                    if self.anomaly_detector:
+                        # 异常检测器已在start()方法中启动，会自动进行检测并通过回调函数处理告警
+                        pass
                 
                 # 临时休眠，避免CPU占用过高
-                time.sleep(1)
+                time.sleep(0.1)
             except Exception as e:
                 logger.error(f"处理循环异常: {e}")
+    
+    def _capture_network_packets(self):
+        """
+        捕获网络数据包（模拟实现）
+        
+        Returns:
+            list: 捕获的数据包列表
+        """
+        # 这里是模拟实现，实际应用中应该使用pyshark、scapy等库捕获实时网络数据包
+        # 或者与Suricata集成获取数据包
+        return []
+    
+    def _get_flow_id(self, packet):
+        """
+        获取数据包的流ID
+        
+        Args:
+            packet (dict): 数据包信息
+            
+        Returns:
+            str: 流ID
+        """
+        # 实际应用中应该根据五元组（源IP、源端口、目的IP、目的端口、协议）生成流ID
+        src_ip = packet.get('src_ip', '0.0.0.0')
+        src_port = packet.get('src_port', 0)
+        dst_ip = packet.get('dst_ip', '0.0.0.0')
+        dst_port = packet.get('dst_port', 0)
+        protocol = packet.get('protocol', 'tcp')
+        
+        return f"{src_ip}:{src_port}-{dst_ip}:{dst_port}-{protocol}"
+    
+    def _get_attack_priority(self, classification):
+        """
+        根据攻击分类获取优先级
+        
+        Args:
+            classification (dict): 攻击分类信息
+            
+        Returns:
+            int: 优先级，数字越小优先级越高
+        """
+        severity = classification.get("severity", "medium").lower()
+        if severity == "critical":
+            return 0
+        elif severity == "high":
+            return 1
+        elif severity == "medium":
+            return 2
+        elif severity == "low":
+            return 3
+        else:
+            return 2  # 默认为中等优先级
     
     def process_pcap_file(self, pcap_file):
         """
@@ -283,20 +631,191 @@ class SuriVisor:
         
         logger.info(f"开始处理PCAP文件: {pcap_file}")
         
-        # TODO: 实现PCAP文件解析和处理逻辑
-        # 这里需要使用pyshark或scapy等库解析PCAP文件，然后将数据包送入处理流程
-        
-        return {"status": "success", "message": "PCAP文件处理完成"}
+        try:
+            # 这里模拟使用pyshark或scapy解析PCAP文件
+            # 实际应用中应该使用如下代码：
+            # import pyshark
+            # cap = pyshark.FileCapture(pcap_file)
+            # packets = [packet for packet in cap]
+            
+            # 模拟解析出的数据包
+            packets = self._simulate_pcap_parsing(pcap_file)
+            
+            if not packets:
+                logger.warning(f"PCAP文件中未找到数据包: {pcap_file}")
+                return {"status": "warning", "message": "PCAP文件中未找到数据包"}
+            
+            logger.info(f"从PCAP文件中解析出{len(packets)}个数据包")
+            
+            # 处理解析出的数据包
+            results = {
+                "total_packets": len(packets),
+                "processed_packets": 0,
+                "reassembled_flows": 0,
+                "detected_attacks": 0,
+                "detected_anomalies": 0,
+                "start_time": time.time()
+            }
+            
+            # 数据包重组
+            reassembled_flows = {}
+            if self.packet_reassembler:
+                for packet in packets:
+                    flow_id = self._get_flow_id(packet)
+                    seq_num = packet.get('seq_num', 0)
+                    data = packet.get('data', b'')
+                    is_last = packet.get('is_last', False)
+                    
+                    self.packet_reassembler.add_fragment(flow_id, seq_num, data, is_last)
+                    results["processed_packets"] += 1
+                
+                # 尝试重组所有流
+                for flow_id in set([self._get_flow_id(p) for p in packets]):
+                    reassembled_data = self.packet_reassembler.reassemble_flow(flow_id)
+                    if reassembled_data:
+                        reassembled_flows[flow_id] = reassembled_data
+                        results["reassembled_flows"] += 1
+            
+            # 流量分析
+            if self.traffic_analyzer and reassembled_flows:
+                for flow_id, flow_data in reassembled_flows.items():
+                    # 提取流量特征
+                    features = self.traffic_analyzer.extract_features(flow_id, flow_data)
+                    
+                    # 分类流量
+                    classification = self.traffic_analyzer.classify_flow(flow_id, features)
+                    
+                    # 如果检测到攻击，创建事件
+                    if classification and classification.get('is_attack', False):
+                        results["detected_attacks"] += 1
+                        if self.event_manager:
+                            self.event_manager.create_and_emit_event(
+                                event_type="attack",
+                                source="traffic_analyzer",
+                                priority=self._get_attack_priority(classification),
+                                data=classification
+                            )
+            
+            # 异常检测
+            if self.anomaly_detector:
+                # 将解析出的数据包送入异常检测器
+                for packet in packets:
+                    metrics = self._extract_packet_metrics(packet)
+                    for metric_name, value in metrics.items():
+                        if self.anomaly_detector.update_metric(metric_name, value):
+                            results["detected_anomalies"] += 1
+            
+            # 生成处理报告
+            results["end_time"] = time.time()
+            results["processing_time"] = results["end_time"] - results["start_time"]
+            
+            # 如果配置了报告生成器，生成PCAP分析报告
+            if self.report_generator and self.config["analysis"]["report_generator_enabled"]:
+                report_file = os.path.join(
+                    self.config["general"]["data_dir"],
+                    f"reports/pcap_analysis_{int(time.time())}.html"
+                )
+                
+                report_data = {
+                    "timestamp": time.time(),
+                    "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "pcap_file": pcap_file,
+                    "results": results,
+                    "packet_reassembly": self.packet_reassembler.get_reassembly_statistics() if self.packet_reassembler else None,
+                    "traffic_analysis": self.traffic_analyzer.get_statistics() if self.traffic_analyzer else None,
+                    "anomaly_detection": self.anomaly_detector.generate_anomaly_report() if self.anomaly_detector else None,
+                    "event_manager": self.event_manager.get_statistics() if self.event_manager else None
+                }
+                
+                self.report_generator.generate_report(
+                    data=report_data,
+                    report_type="html",
+                    output_file=report_file
+                )
+                
+                results["report_file"] = report_file
+            
+            logger.info(f"PCAP文件处理完成: {results}")
+            return {"status": "success", "message": "PCAP文件处理完成", "results": results}
+            
+        except Exception as e:
+            logger.error(f"处理PCAP文件时发生错误: {e}")
+            return {"status": "error", "message": f"处理PCAP文件时发生错误: {e}"}
     
-    def generate_report(self, output_file=None):
+    def _simulate_pcap_parsing(self, pcap_file):
+        """
+        模拟解析PCAP文件（用于演示）
+        
+        Args:
+            pcap_file (str): PCAP文件路径
+            
+        Returns:
+            list: 模拟的数据包列表
+        """
+        # 这里仅用于演示，实际应用中应该使用pyshark或scapy解析PCAP文件
+        # 模拟生成一些数据包
+        packets = []
+        
+        # 模拟HTTP流量
+        for i in range(10):
+            packets.append({
+                'src_ip': '192.168.1.100',
+                'src_port': 12345 + i,
+                'dst_ip': '93.184.216.34',  # example.com
+                'dst_port': 80,
+                'protocol': 'tcp',
+                'seq_num': i,
+                'data': f'GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n'.encode(),
+                'is_last': (i == 9)
+            })
+        
+        # 模拟端口扫描攻击
+        for i in range(20):
+            packets.append({
+                'src_ip': '10.0.0.99',
+                'src_port': 54321,
+                'dst_ip': '192.168.1.1',
+                'dst_port': 1000 + i,
+                'protocol': 'tcp',
+                'seq_num': i,
+                'data': b'\x00\x00\x00\x00',  # 空数据
+                'is_last': (i % 5 == 4)  # 每5个包为一个流
+            })
+        
+        return packets
+    
+    def _extract_packet_metrics(self, packet):
+        """
+        从数据包中提取指标
+        
+        Args:
+            packet (dict): 数据包信息
+            
+        Returns:
+            dict: 提取的指标
+        """
+        # 实际应用中应该根据数据包内容提取各种指标
+        # 这里仅用于演示
+        return {
+            "packet_size": len(packet.get('data', b'')),
+            "is_tcp": 1 if packet.get('protocol') == 'tcp' else 0,
+            "is_udp": 1 if packet.get('protocol') == 'udp' else 0,
+            "is_icmp": 1 if packet.get('protocol') == 'icmp' else 0,
+            "src_port": packet.get('src_port', 0),
+            "dst_port": packet.get('dst_port', 0)
+        }
+    
+    def generate_report(self, output_file=None, report_type="json"):
         """
         生成系统报告
         
         Args:
             output_file (str): 输出文件路径，如果为None则返回报告内容
+            report_type (str): 报告类型，支持"json"、"html"、"pdf"、"csv"，默认为"json"
             
         Returns:
-            str or bool: 如果output_file为None，返回报告内容；否则返回是否成功写入文件
+            str or bool: 如果output_file为None且report_type为"json"，返回报告内容；
+                        否则返回生成的报告文件路径或操作是否成功
         """
         # 收集各组件的报告
         report = {
@@ -322,20 +841,45 @@ class SuriVisor:
             else:
                 report["anomaly_detection"] = anomaly_report
         
-        # 如果指定了输出文件，写入文件
-        if output_file:
-            try:
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        # 添加事件管理器报告
+        if self.event_manager:
+            report["event_manager"] = self.event_manager.get_statistics()
+        
+        # 如果有报告生成器且不是JSON格式或指定了输出文件，使用报告生成器
+        if self.report_generator and (report_type != "json" or output_file):
+            # 如果未指定输出文件，生成默认文件名
+            if not output_file:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_file = os.path.join(
+                    self.config["general"]["data_dir"], 
+                    f"reports/report_{timestamp}.{report_type}"
+                )
+            
+            # 使用报告生成器生成报告
+            return self.report_generator.generate_report(
+                data=report,
+                report_type=report_type,
+                output_file=output_file
+            )
+        
+        # 如果是JSON格式且未指定输出文件，返回JSON字符串
+        if report_type == "json" and not output_file:
+            return json.dumps(report, indent=4)
+        
+        # 否则，写入JSON文件
+        try:
+            # 确保输出文件的目录存在
+            if output_file:
+                output_dir = os.path.dirname(output_file)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
                 with open(output_file, 'w') as f:
                     json.dump(report, f, indent=4)
                 logger.info(f"系统报告已保存到{output_file}")
-                return True
-            except Exception as e:
-                logger.error(f"保存系统报告失败: {e}")
-                return False
-        
-        # 否则返回报告内容
-        return json.dumps(report, indent=4)
+                return output_file
+        except Exception as e:
+            logger.error(f"保存系统报告失败: {e}")
+            return False
 
 
 def main():
