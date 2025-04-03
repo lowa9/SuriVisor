@@ -316,7 +316,11 @@ class SuriVisor:
         # 添加异常检测器报告
         if self.anomaly_detector:
             anomaly_report = self.anomaly_detector.generate_anomaly_report()
-            report["anomaly_detection"] = json.loads(anomaly_report)
+            # 确保 anomaly_report 是字符串类型
+            if isinstance(anomaly_report, str):
+                report["anomaly_detection"] = json.loads(anomaly_report)
+            else:
+                report["anomaly_detection"] = anomaly_report
         
         # 如果指定了输出文件，写入文件
         if output_file:
