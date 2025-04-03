@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuriVisor - PCAP管理</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/bootstrap.min.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">SuriVisor</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/capture">实时捕获</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/analysis">流量分析</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/anomaly">异常检测</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/pcap">PCAP管理</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">PCAP文件管理</h5>
+                        <button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                            <i class="bi bi-upload"></i> 上传PCAP文件
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>文件名</th>
+                                        <th>大小</th>
+                                        <th>上传时间</th>
+                                        <th>数据包数量</th>
+                                        <th>持续时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pcap-files">
+                                    <!-- PCAP文件列表将通过JavaScript动态加载 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">PCAP回放控制</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group mb-3">
+                                    <label for="selected-file">选择的文件</label>
+                                    <input type="text" class="form-control" id="selected-file" readonly>
+                                </div>
+                                <div class="form-group mb-3">
+                                    <label for="replay-speed">回放速度</label>
+                                    <select class="form-control" id="replay-speed">
+                                        <option value="0.25">0.25x (慢速)</option>
+                                        <option value="0.5">0.5x (半速)</option>
+                                        <option value="1" selected>1x (原速)</option>
+                                        <option value="2">2x (两倍速)</option>
+                                        <option value="5">5x (五倍速)</option>
+                                        <option value="10">10x (十倍速)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group mb-3">
+                                    <label for="replay-interface">回放接口</label>
+                                    <select class="form-control" id="replay-interface">
+                                        <!-- 网络接口列表将通过JavaScript动态加载 -->
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group mb-3">
+                                    <label for="replay-filter">BPF过滤器 (可选)</label>
+                                    <input type="text" class="form-control" id="replay-filter" placeholder="例如: tcp port 80">
+                                </div>
+                                <div class="form-group mb-3">
+                                    <label for="replay-loop">循环次数</label>
+                                    <input type="number" class="form-control" id="replay-loop" value="1" min="1" max="100">
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input type="checkbox" class="form-check-input" id="replay-analyze">
+                                    <label class="form-check-label" for="replay-analyze">回放时进行分析</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-md-12">
+                                <div class="progress mb-3" style="height: 25px;">
+                                    <div id="replay-progress" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                                </div>
+                                <div class="btn-group w-100">
+                                    <button id="btn-start-replay" class="btn btn-success" disabled>
+                                        <i class="bi bi-play-fill"></i> 开始回放
+                                    </button>
+                                    <button id="btn-pause-replay" class="btn btn-warning" disabled>
+                                        <i class="bi bi-pause-fill"></i> 暂停
+                                    </button>
+                                    <button id="btn-stop-replay" class="btn btn-danger" disabled>
+                                        <i class="bi bi-stop-fill"></i> 停止
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">回放统计信息</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 id="replay-packets">0</h3>
+                                        <p>已回放数据包</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 id="replay-bytes">0</h3>
+                                        <p>已回放字节数</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 id="replay-time">00:00:00</h3>
+                                        <p>已回放时间</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 id="replay-speed-actual">0 pps</h3>
+                                        <p>实际回放速率</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传PCAP文件模态框 -->
+    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="uploadModalLabel">上传PCAP文件</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="upload-form" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="pcap-file" class="form-label">选择PCAP文件</label>
+                            <input class="form-control" type="file" id="pcap-file" accept=".pcap,.pcapng">
+                        </div>
+                        <div class="mb-3">
+                            <label for="file-description" class="form-label">文件描述 (可选)</label>
+                            <textarea class="form-control" id="file-description" rows="3"></textarea>
+                        </div>
+                        <div class="progress mb-3" style="display: none;">
+                            <div id="upload-progress" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-upload">上传</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PCAP详情模态框 -->
+    <div class="modal fade" id="detailsModal" tabindex="-1" aria-labelledby="detailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="detailsModalLabel">PCAP文件详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>基本信息</h6>
+                            <table class="table table-sm">
+                                <tr>
+                                    <th>文件名</th>
+                                    <td id="detail-filename"></td>
+                                </tr>
+                                <tr>
+                                    <th>文件大小</th>
+                                    <td id="detail-filesize"></td>
+                                </tr>
+                                <tr>
+                                    <th>上传时间</th>
+                                    <td id="detail-uploadtime"></td>
+                                </tr>
+                                <tr>
+                                    <th>数据包数量</th>
+                                    <td id="detail-packetcount"></td>
+                                </tr>
+                                <tr>
+                                    <th>持续时间</th>
+                                    <td id="detail-duration"></td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>协议分布</h6>
+                            <canvas id="detail-protocol-chart" height="200"></canvas>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-12">
+                            <h6>数据包预览</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>序号</th>
+                                            <th>时间</th>
+                                            <th>源地址</th>
+                                            <th>目标地址</th>
+                                            <th>协议</th>
+                                            <th>长度</th>
+                                            <th>信息</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="detail-packets">
+                                        <!-- 数据包预览将通过JavaScript动态加载 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" id="btn-select-for-replay">选择用于回放</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/pcap-manager.js"></script>
+</body>
+</html>
