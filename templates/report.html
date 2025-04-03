@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuriVisor 威胁分析报告</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --light-color: #ecf0f1;
+            --dark-color: #34495e;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 2.2em;
+        }
+        
+        h2 {
+            color: var(--secondary-color);
+            border-bottom: 2px solid var(--secondary-color);
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+        
+        h3 {
+            color: var(--dark-color);
+            margin-top: 25px;
+        }
+        
+        .metadata {
+            background-color: var(--light-color);
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            color: var(--dark-color);
+        }
+        
+        .metadata p {
+            margin: 5px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        
+        .alert-danger {
+            background-color: #fde8e8;
+            border-left: 5px solid var(--danger-color);
+            color: #a42a2a;
+        }
+        
+        .alert-warning {
+            background-color: #fef6e8;
+            border-left: 5px solid var(--warning-color);
+            color: #8a5700;
+        }
+        
+        .alert-info {
+            background-color: #e8f4fd;
+            border-left: 5px solid var(--secondary-color);
+            color: #0a5c91;
+        }
+        
+        .chart-container {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 30px;
+            background-color: var(--primary-color);
+            color: white;
+            font-size: 0.9em;
+        }
+        
+        .summary-box {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: var(--secondary-color);
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            color: var(--dark-color);
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SuriVisor 威胁分析报告</h1>
+        </header>
+        
+        <div class="metadata">
+            <p><strong>生成时间:</strong> {{ metadata.generated_at }}</p>
+            <p><strong>生成器:</strong> {{ metadata.generator }} v{{ metadata.version }}</p>
+            {% if data.timestamp %}
+            <p><strong>数据时间戳:</strong> {{ data.datetime }}</p>
+            {% endif %}
+        </div>
+        
+        <div class="summary-box">
+            <h2>系统状态摘要</h2>
+            <p><strong>系统状态:</strong> 
+                {% if data.system_status == "running" %}
+                <span style="color: var(--success-color);">运行中</span>
+                {% else %}
+                <span style="color: var(--danger-color);">已停止</span>
+                {% endif %}
+            </p>
+            
+            <div class="stat-grid">
+                {% if data.packet_reassembly %}
+                <div class="stat-card">
+                    <div class="stat-label">总数据包数</div>
+                    <div class="stat-value">{{ data.packet_reassembly.total_packets }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">重组数据包数</div>
+                    <div class="stat-value">{{ data.packet_reassembly.reassembled_packets }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">丢失数据包数</div>
+                    <div class="stat-value">{{ data.packet_reassembly.lost_packets }}</div>
+                </div>
+                {% endif %}
+                
+                {% if data.traffic_analysis %}
+                <div class="stat-card">
+                    <div class="stat-label">分析流数量</div>
+                    <div class="stat-value">{{ data.traffic_analysis.analyzed_flows }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">检测到的攻击</div>
+                    <div class="stat-value">{{ data.traffic_analysis.detected_attacks }}</div>
+                </div>
+                {% endif %}
+                
+                {% if data.anomaly_detection %}
+                <div class="stat-card">
+                    <div class="stat-label">检测到的异常</div>
+                    <div class="stat-value">{{ data.anomaly_detection.total_anomalies }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        {% if data.packet_reassembly %}
+        <h2>数据包重组分析</h2>
+        <table>
+            <tr>
+                <th>指标</th>
+                <th>值</th>
+            </tr>
+            <tr>
+                <td>总数据包数</td>
+                <td>{{ data.packet_reassembly.total_packets }}</td>
+            </tr>
+            <tr>
+                <td>重组数据包数</td>
+                <td>{{ data.packet_reassembly.reassembled_packets }}</td>
+            </tr>
+            <tr>
+                <td>丢失数据包数</td>
+                <td>{{ data.packet_reassembly.lost_packets }}</td>
+            </tr>
+            <tr>
+                <td>乱序数据包数</td>
+                <td>{{ data.packet_reassembly.out_of_order_packets }}</td>
+            </tr>
+            <tr>
+                <td>重组成功率</td>
+                <td>{{ data.packet_reassembly.reassembly_success_rate }}%</td>
+            </tr>
+            <tr>
+                <td>平均重组时间</td>
+                <td>{{ data.packet_reassembly.avg_reassembly_time }} ms</td>
+            </tr>
+        </table>
+        {% endif %}
+        
+        {% if data.traffic_analysis %}
+        <h2>流量分析结果</h2>
+        
+        <h3>流量统计</h3>
+        <table>
+            <tr>
+                <th>指标</th>
+                <th>值</th>
+            </tr>
+            <tr>
+                <td>分析流数量</td>
+                <td>{{ data.traffic_analysis.analyzed_flows }}</td>
+            </tr>
+            <tr>
+                <td>总流量</td>
+                <td>{{ data.traffic_analysis.total_traffic }} MB</td>
+            </tr>
+            <tr>
+                <td>平均流大小</td>
+                <td>{{ data.traffic_analysis.avg_flow_size }} KB</td>
+            </tr>
+            <tr>
+                <td>最大流大小</td>
+                <td>{{ data.traffic_analysis.max_flow_size }} KB</td>
+            </tr>
+        </table>
+        
+        {% if data.traffic_analysis.detected_attacks > 0 %}
+        <h3>检测到的攻击</h3>
+        <div class="alert alert-danger">
+            <p><strong>警告:</strong> 检测到 {{ data.traffic_analysis.detected_attacks }} 次潜在攻击行为！</p>
+        </div>
+        
+        <table>
+            <tr>
+                <th>攻击类型</th>
+                <th>置信度</th>
+                <th>源IP</th>
+                <th>目标IP</th>
+                <th>时间</th>
+            </tr>
+            {% for attack in data.traffic_analysis.attacks %}
+            <tr>
+                <td>{{ attack.type }}</td>
+                <td>{{ attack.confidence }}%</td>
+                <td>{{ attack.source_ip }}</td>
+                <td>{{ attack.target_ip }}</td>
+                <td>{{ attack.timestamp }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+        {% endif %}
+        
+        {% if data.anomaly_detection %}
+        <h2>异常检测结果</h2>
+        
+        {% if data.anomaly_detection.total_anomalies > 0 %}
+        <div class="alert alert-warning">
+            <p><strong>注意:</strong> 检测到 {{ data.anomaly_detection.total_anomalies }} 个网络异常！</p>
+        </div>
+        
+        <table>
+            <tr>
+                <th>异常类型</th>
+                <th>异常值</th>
+                <th>阈值</th>
+                <th>严重程度</th>
+                <th>时间</th>
+            </tr>
+            {% for anomaly in data.anomaly_detection.anomalies %}
+            <tr>
+                <td>{{ anomaly.description }}</td>
+                <td>{{ anomaly.value }}</td>
+                <td>{{ anomaly.threshold }}</td>
+                <td>{{ anomaly.severity }}</td>
+                <td>{{ anomaly.datetime }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <div class="alert alert-info">
+            <p><strong>信息:</strong> 未检测到网络异常。</p>
+        </div>
+        {% endif %}
+        {% endif %}
+        
+        {% if data.event_manager %}
+        <h2>事件管理统计</h2>
+        <table>
+            <tr>
+                <th>指标</th>
+                <th>值</th>
+            </tr>
+            <tr>
+                <td>接收事件数</td>
+                <td>{{ data.event_manager.events_received }}</td>
+            </tr>
+            <tr>
+                <td>处理事件数</td>
+                <td>{{ data.event_manager.events_processed }}</td>
+            </tr>
+            <tr>
+                <td>丢弃事件数</td>
+                <td>{{ data.event_manager.events_dropped }}</td>
+            </tr>
+            <tr>
+                <td>平均处理时间</td>
+                <td>{{ data.event_manager.avg_processing_time }} 秒</td>
+            </tr>
+            <tr>
+                <td>当前队列大小</td>
+                <td>{{ data.event_manager.queue_size }}</td>
+            </tr>
+            <tr>
+                <td>队列占用率</td>
+                <td>{{ data.event_manager.queue_full_percentage }}%</td>
+            </tr>
+        </table>
+        
+        <h3>事件类型分布</h3>
+        <table>
+            <tr>
+                <th>事件类型</th>
+                <th>数量</th>
+            </tr>
+            {% for type, count in data.event_manager.events_by_type.items() %}
+            <tr>
+                <td>{{ type }}</td>
+                <td>{{ count }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+        
+        <footer>
+            <p>SuriVisor - 基于Suricata的威胁分析系统</p>
+            <p>© {{ metadata.generated_at[:4] }} SuriVisor团队</p>
+        </footer>
+    </div>
+</body>
+</html>

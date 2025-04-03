@@ -26,7 +26,7 @@ source venv/bin/activate
 
 # 安装项目依赖
 echo "安装项目Python依赖..."
-pip install numpy pandas scikit-learn pyshark scapy flask matplotlib seaborn
+pip install numpy pandas scikit-learn pyshark scapy flask matplotlib seaborn weasyprint
 
 # 安装前端依赖
 echo "安装前端依赖..."
