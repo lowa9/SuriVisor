@@ -26,7 +26,8 @@ source venv/bin/activate
 
 # 安装项目依赖
 echo "安装项目Python依赖..."
-pip install numpy pandas scikit-learn pyshark scapy flask matplotlib seaborn weasyprint
+# 确保使用虚拟环境中的pip
+"$PWD/venv/bin/pip" install elasticsearch numpy pandas scikit-learn pyshark scapy flask matplotlib seaborn weasyprint PyYAML
 
 # 安装前端依赖
 echo "安装前端依赖..."
@@ -86,4 +87,20 @@ ReportGenerationEnabled = True
 EOF
 
 echo "系统配置已创建"
+
+# 创建启动脚本
+cat > scripts/start.sh << EOF
+#!/bin/bash
+
+# 激活虚拟环境
+source "$PWD/venv/bin/activate"
+
+# 使用虚拟环境中的Python启动应用
+sudo -E python3 src/main.py
+EOF
+
+# 设置启动脚本权限
+chmod +x scripts/start.sh
+
 echo "SuriVisor环境设置完成！"
+echo "请使用 './scripts/start.sh' 启动系统"

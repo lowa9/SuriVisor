@@ -14,6 +14,7 @@ import logging
 import argparse
 import json
 import threading
+import yaml
 from datetime import datetime
 
 # 添加项目根目录到Python路径
@@ -25,6 +26,8 @@ from src.core.traffic_analysis.traffic_analyzer import TrafficAnalyzer
 from src.core.anomaly_detection.anomaly_detector import AnomalyDetector
 from src.core.event_manager.event_manager import EventManager, Event
 from src.core.report_generator.report_generator import ReportGenerator
+from src.core.suricata_monitor.process_manager import SuricataProcessManager
+from src.core.suricata_monitor.log_monitor import SuricataLogMonitor
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, 
@@ -43,6 +46,30 @@ class SuriVisor:
     负责初始化各个组件并协调它们之间的交互。
     """
     
+    def validate_suricata_config(self):
+        """验证Suricata配置文件"""
+        try:
+            with open(self.config['suricata']['config_path'], 'r') as f:
+                suricata_config = yaml.safe_load(f)
+            
+            # 验证必要的端口配置
+            if 'vars' not in suricata_config or 'port-groups' not in suricata_config['vars']:
+                raise ValueError("Suricata配置文件缺少端口组配置")
+            
+            port_groups = suricata_config['vars']['port-groups']
+            required_ports = ['HTTP_PORTS', 'SSH_PORTS', 'DNS_PORTS', 'MODBUS_PORTS']
+            
+            for port in required_ports:
+                if port not in port_groups:
+                    logger.warning(f"Suricata配置缺少{port}配置")
+            
+            logger.info("Suricata配置验证完成")
+            return True
+            
+        except Exception as e:
+            logger.error(f"验证Suricata配置文件失败: {str(e)}")
+            return False
+
     def __init__(self, config_file=None):
         """
         初始化SuriVisor系统
@@ -60,7 +87,12 @@ class SuriVisor:
             "suricata": {
                 "binary_path": "/usr/bin/suricata",
                 "config_path": os.path.join(os.path.dirname(__file__), '../config/suricata.yaml'),
-                "rule_path": "/etc/suricata/rules"
+                "rule_path": "/etc/suricata/rules",
+                "monitor_interface": "any",
+                "elasticsearch": {
+                    "hosts": ["http://localhost:9200"],
+                    "index": "suricata"
+                }
             },
             "analysis": {
                 "packet_reassembly_enabled": True,
@@ -86,6 +118,11 @@ class SuriVisor:
         # 设置日志级别
         log_level = getattr(logging, self.config["general"]["log_level"].upper(), logging.INFO)
         logging.getLogger().setLevel(log_level)
+        
+        # 验证Suricata配置
+        if not self.validate_suricata_config():
+            logger.error("Suricata配置验证失败，系统启动终止")
+            sys.exit(1)
         
         # 初始化组件
         self.packet_reassembler = None
@@ -155,6 +192,26 @@ class SuriVisor:
             bool: 初始化是否成功
         """
         try:
+            # 初始化Suricata进程管理器
+            logger.info("初始化Suricata进程管理器...")
+            self.suricata_manager = SuricataProcessManager(
+                binary_path=self.config["suricata"]["binary_path"],
+                config_path=self.config["suricata"]["config_path"],
+                rule_path=self.config["suricata"]["rule_path"],
+                log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata")
+            )
+            
+            # 初始化日志监控器
+            logger.info("初始化Suricata日志监控器...")
+            self.log_monitor = SuricataLogMonitor(
+                log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata"),
+                es_hosts=["http://127.0.0.1:9200"]  # 可以从配置文件中读取
+            )
+            
+            # 注册日志事件处理器
+            if self.log_monitor:
+                self.log_monitor.register_callback(self._handle_suricata_event)
+            
             # 初始化数据包重组器
             if self.config["analysis"]["packet_reassembly_enabled"]:
                 logger.info("初始化数据包重组器...")
@@ -369,6 +426,66 @@ class SuriVisor:
         else:
             logger.info(f"未知系统事件子类型: {event_subtype}")
     
+    def _handle_suricata_event(self, event_data):
+        """
+        处理Suricata事件
+        
+        Args:
+            event_data (dict): Suricata事件数据
+        """
+        try:
+            # 获取事件类型
+            event_type = event_data.get('event_type')
+            
+            if event_type == 'alert':
+                # 处理告警事件
+                alert_data = {
+                    'timestamp': event_data.get('timestamp'),
+                    'src_ip': event_data.get('src_ip'),
+                    'dest_ip': event_data.get('dest_ip'),
+                    'alert': event_data.get('alert', {}),
+                    'severity': event_data.get('alert', {}).get('severity', 2)
+                }
+                
+                # 创建告警事件
+                if self.event_manager:
+                    self.event_manager.create_and_emit_event(
+                        event_type="alert",
+                        source="suricata",
+                        priority=self._get_alert_priority(alert_data),
+                        data=alert_data
+                    )
+            
+            elif event_type == 'flow':
+                # 处理流量事件
+                flow_data = {
+                    'timestamp': event_data.get('timestamp'),
+                    'src_ip': event_data.get('src_ip'),
+                    'dest_ip': event_data.get('dest_ip'),
+                    'proto': event_data.get('proto'),
+                    'app_proto': event_data.get('app_proto'),
+                    'flow': event_data.get('flow', {})
+                }
+                
+                # 如果配置了流量分析，进行分析
+                if self.traffic_analyzer:
+                    self.traffic_analyzer.analyze_flow(flow_data)
+            
+            elif event_type == 'anomaly':
+                # 处理异常事件
+                anomaly_data = {
+                    'timestamp': event_data.get('timestamp'),
+                    'type': event_data.get('anomaly', {}).get('type'),
+                    'description': event_data.get('anomaly', {}).get('description')
+                }
+                
+                # 如果配置了异常检测，进行处理
+                if self.anomaly_detector:
+                    self.anomaly_detector.process_anomaly(anomaly_data)
+            
+        except Exception as e:
+            logger.error(f'处理Suricata事件时发生错误: {e}')
+    
     def _generate_alert_report(self, event):
         """
         生成告警报告
@@ -460,6 +577,18 @@ class SuriVisor:
         if not self.initialize_components():
             return False
         
+        # 启动Suricata
+        if self.suricata_manager:
+            if not self.suricata_manager.start():
+                logger.error("启动Suricata失败")
+                return False
+        
+        # 启动日志监控
+        if self.log_monitor:
+            if not self.log_monitor.start_monitoring():
+                logger.error("启动日志监控失败")
+                return False
+        
         # 启动异常检测
         if self.anomaly_detector:
             self.anomaly_detector.start_monitoring()
@@ -490,6 +619,14 @@ class SuriVisor:
         
         # 设置停止标志
         self.running = False
+        
+        # 停止Suricata
+        if self.suricata_manager:
+            self.suricata_manager.stop()
+        
+        # 停止日志监控
+        if self.log_monitor:
+            self.log_monitor.stop_monitoring()
         
         # 停止异常检测
         if self.anomaly_detector:
@@ -570,6 +707,7 @@ class SuriVisor:
         Returns:
             list: 捕获的数据包列表
         """
+        # TODO: 捕获网络数据包
         # 这里是模拟实现，实际应用中应该使用pyshark、scapy等库捕获实时网络数据包
         # 或者与Suricata集成获取数据包
         return []
@@ -632,6 +770,7 @@ class SuriVisor:
         logger.info(f"开始处理PCAP文件: {pcap_file}")
         
         try:
+            # TODO: 解析PCAP文件，提取流量特征，进行流量分类，异常检测等处理
             # 这里模拟使用pyshark或scapy解析PCAP文件
             # 实际应用中应该使用如下代码：
             # import pyshark
@@ -794,6 +933,7 @@ class SuriVisor:
         Returns:
             dict: 提取的指标
         """
+        # TODO: 从数据包中提取各种指标
         # 实际应用中应该根据数据包内容提取各种指标
         # 这里仅用于演示
         return {
