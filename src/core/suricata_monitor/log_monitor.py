@@ -259,3 +259,33 @@ class SuricataLogMonitor:
         except Exception as e:
             logger.error(f'获取告警失败: {e}')
             return pd.DataFrame()
+            
+    def get_es_data(self, query: Dict[str, Any] = None, size: int = 100) -> List[Dict[str, Any]]:
+        """从Elasticsearch查询数据
+        
+        Args:
+            query: Elasticsearch查询DSL
+            size: 返回结果数量
+            
+        Returns:
+            List[Dict[str, Any]]: 查询结果列表
+        """
+        if not self.es_client:
+            logger.error('Elasticsearch客户端未初始化')
+            return []
+            
+        try:
+            if not query:
+                query = {"match_all": {}}
+                
+            result = self.es_client.search(
+                index=self.es_index,
+                body={"query": query},
+                size=size
+            )
+            
+            return [hit['_source'] for hit in result['hits']['hits']]
+            
+        except Exception as e:
+            logger.error(f'查询Elasticsearch失败: {e}')
+            return []

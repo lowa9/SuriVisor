@@ -114,7 +114,7 @@ class SuriVisor:
             self.load_config(config_file)
         
         # 确保日志目录存在
-        os.makedirs(os.path.join(os.path.dirname(__file__), '../logs'), exist_ok=True)
+        os.makedirs(os.path.join(os.path.dirname(__file__), '../data/logs'), exist_ok=True)
         
         # 设置日志级别
         log_level = getattr(logging, self.config["general"]["log_level"].upper(), logging.INFO)

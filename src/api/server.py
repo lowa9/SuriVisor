@@ -77,4 +77,25 @@ def create_app(surivisor_instance):
         
         return jsonify({"status": "error", "message": "流量分析器未初始化"}), 500
 
+    @app.route('/api/es/data', methods=['GET'])
+    def get_es_data():
+        """获取Elasticsearch中的数据"""
+        if not app.surivisor.suricata_monitor:
+            return jsonify({"status": "error", "message": "Suricata监控器未初始化"}), 500
+            
+        try:
+            # 获取查询参数
+            query = request.args.get('query')
+            size = int(request.args.get('size', 100))
+            
+            # 解析查询参数
+            es_query = json.loads(query) if query else None
+            
+            # 查询数据
+            data = app.surivisor.suricata_monitor.get_es_data(es_query, size)
+            return jsonify({"status": "success", "data": data})
+            
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+            
     return app

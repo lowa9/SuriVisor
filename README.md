@@ -36,26 +36,47 @@ SuriVisor是一个基于Suricata的综合性网络威胁分析系统，旨在提
 
 ```
 SuriVisor/
-├── src/                    # 源代码目录
-│   ├── core/               # 核心功能模块
-│   │   ├── packet_reassembly/  # 数据包重组算法
-│   │   ├── traffic_analysis/   # 流量分析模块
-│   │   └── anomaly_detection/  # 异常检测模块
-│   ├── ui/                 # 用户界面
-│   │   ├── web/            # Web界面
-│   │   └── dashboard/      # 数据可视化仪表盘
-│   ├── utils/              # 工具函数
-│   └── models/             # 机器学习模型
+├── config/                 # 配置文件
+│   ├── suricata.yaml       # Suricata配置文件
+│   └── system.conf         # 系统配置文件
 ├── data/                   # 数据目录
+│   ├── alerts/             # Suricata告警日志
+│   ├── logs/               # 系统日志
+│   │   └── suricata/       # Suricata运行日志
 │   ├── pcap/               # 网络流量捕获文件
-│   ├── scenarios/          # 攻击场景配置
-│   └── reports/            # 生成的报告
-├── tests/                  # 测试目录
-│   ├── unit/               # 单元测试
-│   └── integration/        # 集成测试
-├── docs/                   # 文档
+│   ├── reports/            # 生成的报告
+│   └── scenarios/          # 攻击场景配置
 ├── scripts/                # 脚本工具
-└── config/                 # 配置文件
+│   ├── setup.sh            # 系统安装脚本
+│   └── start.sh            # 启动脚本
+├── src/                    # 源代码目录
+│   ├── api/                # API接口
+│   │   └── server.py       # REST API服务
+│   ├── core/               # 核心功能模块
+│   │   ├── anomaly_detection/  # 异常检测模块
+│   │   ├── event_manager/      # 事件管理模块
+│   │   ├── packet_reassembly/  # 数据包重组算法
+│   │   ├── report_generator/   # 报告生成模块
+│   │   ├── suricata_monitor/   # Suricata监控模块
+│   │   └── traffic_analysis/   # 流量分析模块
+│   ├── main.py             # 主程序入口
+│   ├── ui/                 # 用户界面
+│   │   └── dashboard/      # 数据可视化仪表盘
+│   └── utils/              # 工具函数
+│       ├── __init__.py
+│       ├── packet_utils.py # 数据包处理工具
+│       ├── report_utils.py # 报告生成工具
+│       └── system_utils.py # 系统工具
+├── templates/              # 模板文件
+│   └── report.html         # 报告模板
+└── tests/                  # 测试目录
+    ├── integration/        # 集成测试
+    └── unit/              # 单元测试
+        ├── test_anomaly_detector.py
+        ├── test_event_manager.py
+        ├── test_packet_reassembler.py
+        ├── test_report_generator.py
+        └── test_traffic_analyzer.py
 ```
 
 ## 实现计划
@@ -82,12 +103,29 @@ SuriVisor/
 
 ## 技术栈
 
-- **后端**：Python, C/C++
-- **前端**：HTML, CSS, JavaScript, Vue.js
-- **数据分析**：Pandas, NumPy, Scikit-learn
-- **网络分析**：Suricata, Pyshark, Scapy
-- **数据库**：SQLite/PostgreSQL
-- **可视化**：D3.js, Chart.js
+- **后端**：
+  - Python 3.8+
+  - FastAPI (API服务)
+  - Suricata 6.0+ (网络流量分析)
+- **前端**：
+  - Vue.js 3.x (仪表盘)
+  - Element Plus (UI组件库)
+- **数据分析**：
+  - Pandas 1.3+
+  - NumPy 1.21+
+  - Scikit-learn 1.0+
+- **网络分析**：
+  - Pyshark 0.4
+  - Scapy 2.4
+- **数据库**：
+  - Elasticsearch 7.x (日志存储)
+  - SQLite (轻量级数据存储)
+- **可视化**：
+  - ECharts 5.x (数据可视化)
+  - Chart.js 3.x (图表展示)
+- **其他工具**：
+  - Logstash (日志收集)
+  - Kibana (日志可视化)
 
 ## 预期成果
 
