@@ -494,6 +494,23 @@ class TrafficAnalyzer:
         # 否则返回报告内容
         return json.dumps(report, indent=4)
 
+    def analyze_flow(self, flow_data):
+        """兼容性方法，处理单条流数据"""
+        if not isinstance(flow_data, dict) or 'packets' not in flow_data:
+            logger.error("Invalid flow data format")
+            return {
+                "type": "unknown",
+                "confidence": 0,
+                "details": {"error": "Invalid data format"}
+            }
+        
+        # 生成临时flow_id
+        first_packet = flow_data.get('packets', [{}])[0]
+        flow_id = f"temp_{first_packet.get('src_ip','unknown')}_{first_packet.get('dst_ip','unknown')}_{time.time()}"
+        
+        # 分析单条流
+        result = self.analyze_traffic({flow_id: flow_data})
+        return result[flow_id]['classification']
 
 # 测试代码
 if __name__ == "__main__":

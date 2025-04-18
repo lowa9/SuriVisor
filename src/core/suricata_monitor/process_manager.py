@@ -48,7 +48,7 @@ class SuricataProcessManager:
         # 确保日志目录存在
         os.makedirs(log_dir, exist_ok=True)
     
-    def start(self, interface: str = 'any') -> bool:
+    def start(self, interface: str = 'ens33') -> bool:
         """启动Suricata进程
         
         Args:

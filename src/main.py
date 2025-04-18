@@ -33,7 +33,7 @@ from src.core.suricata_monitor.log_monitor import SuricataLogMonitor
 logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                    handlers=[
-                       logging.FileHandler(os.path.join(os.path.dirname(__file__), '../logs/surivisor.log')),
+                       logging.FileHandler(os.path.join(os.path.dirname(__file__), '../data/logs/surivisor.log')),
                        logging.StreamHandler()
                    ])
 logger = logging.getLogger("SuriVisor")
@@ -102,7 +102,8 @@ class SuriVisor:
                 "report_generator_enabled": True
             },
             "ui": {
-                "web_server_port": 8080,
+                "web_server_port": 5000,
+                "web_frontend_port": 8080,
                 "dashboard_enabled": True,
                 "report_generation_enabled": True
             }
@@ -136,6 +137,30 @@ class SuriVisor:
         self.processing_thread = None
         
         logger.info("SuriVisor系统初始化完成")
+        
+        # 启动Web Server服务
+        if self.config["ui"]["dashboard_enabled"]:
+            from src.api.server import create_app
+            self.api_app = create_app(self)
+            # 启动API服务
+            self.api_thread = threading.Thread(
+                target=self.api_app.run,
+                kwargs={"host": "0.0.0.0", "port": self.config["ui"]["web_server_port"]},
+                daemon=True
+            )
+            self.api_thread.start()
+            logger.info(f"API服务已启动，监听端口 {self.config['ui']['web_server_port']}")
+            
+            # 启动Vue前端服务
+            if self.config["ui"]["dashboard_enabled"]:
+                frontend_dir = os.path.join(os.path.dirname(__file__), '../src/ui/dashboard')
+                if os.path.exists(frontend_dir):
+                    self.frontend_thread = threading.Thread(
+                        target=lambda: os.system(f"cd {frontend_dir} && npm run serve -- --port {self.config['ui']['web_frontend_port']}"),
+                        daemon=True
+                    )
+                    self.frontend_thread.start()
+                    logger.info("Vue前端服务已启动")
     
     def load_config(self, config_file):
         """
@@ -639,6 +664,10 @@ class SuriVisor:
         # 等待处理线程结束
         if self.processing_thread:
             self.processing_thread.join(timeout=5)
+            
+        # 停止API服务
+        if hasattr(self, 'api_thread') and self.api_thread:
+            self.api_thread.join(timeout=1)
         
         logger.info("SuriVisor系统已停止")
         return True
