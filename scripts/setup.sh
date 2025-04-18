@@ -11,47 +11,86 @@ else
     sudo apt-get install -y suricata
 fi
 
-# 安装Python依赖
-echo "安装Python依赖..."
-sudo apt-get install -y python3-pip python3-dev
+# 检查Python依赖
+echo "检查Python依赖..."
+if ! command -v python3 &> /dev/null || ! command -v pip3 &> /dev/null; then
+    echo "安装Python基础依赖..."
+    sudo apt-get install -y python3-pip python3-dev python3-venv
+else
+    echo "Python基础依赖已安装"
+fi
 
-# 创建虚拟环境
-echo "创建Python虚拟环境..."
-sudo pip3 install virtualenv
-virtualenv venv
+# 检查虚拟环境
+echo "检查Python虚拟环境..."
+if [ ! -d "venv" ]; then
+    echo "创建Python虚拟环境..."
+    python3 -m venv venv
+else
+    echo "虚拟环境已存在"
+fi
 
 # 激活虚拟环境
 echo "激活Python虚拟环境..."
 source venv/bin/activate
 
-# 安装项目依赖
-echo "安装项目Python依赖..."
-# 确保使用虚拟环境中的pip
-"$PWD/venv/bin/pip" install elasticsearch numpy pandas scikit-learn pyshark scapy flask matplotlib seaborn weasyprint PyYAML
+# 检查并安装项目依赖
+echo "检查项目Python依赖..."
+required_packages="elasticsearch numpy pandas scikit-learn pyshark scapy flask matplotlib seaborn weasyprint PyYAML"
+for package in $required_packages; do
+    if ! pip show $package &> /dev/null; then
+        echo "安装 $package..."
+        pip install $package
+    else
+        echo "$package 已安装"
+    fi
+done
 
-# 安装前端依赖
-echo "安装前端依赖..."
-# 检查并安装新版本的 Node.js
+# 检查Node.js
 echo "检查 Node.js 版本..."
-if ! command -v node &> /dev/null || [ $(node -v | cut -d. -f1 | tr -d 'v') -lt 14 ]; then
-    echo "安装新版本 Node.js..."
+if ! command -v node &> /dev/null; then
+    echo "安装 Node.js..."
     curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
-    sudo apt-get update
     sudo apt-get install -y nodejs
+elif [ $(node -v | cut -d. -f1 | tr -d 'v') -lt 14 ]; then
+    echo "更新 Node.js 到新版本..."
+    curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+else
+    echo "Node.js 版本符合要求"
 fi
 
-# 配置 npm 使用淘宝镜像
-echo "配置 npm 镜像..."
-npm config set registry https://registry.npmmirror.com
+# 检查npm配置
+echo "检查 npm 配置..."
+current_registry=$(npm config get registry)
+if [ "$current_registry" != "https://registry.npmmirror.com" ]; then
+    echo "配置 npm 镜像..."
+    npm config set registry https://registry.npmmirror.com
+else
+    echo "npm 镜像已配置"
+fi
 
-# 修复 npm 权限问题并安装 Vue CLI
-echo "安装 Vue CLI..."
-mkdir -p ~/.npm-global
-npm config set prefix '~/.npm-global'
-export PATH=~/.npm-global/bin:$PATH
-echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.profile
-source ~/.profile
-npm install -g @vue/cli
+# 检查npm全局目录
+if [ ! -d "~/.npm-global" ]; then
+    echo "配置 npm 全局目录..."
+    mkdir -p ~/.npm-global
+    npm config set prefix '~/.npm-global'
+    if ! grep -q "export PATH=~/.npm-global/bin:\$PATH" ~/.profile; then
+        echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.profile
+    fi
+    source ~/.profile
+else
+    echo "npm 全局目录已配置"
+fi
+
+# 检查Vue CLI
+echo "检查 Vue CLI..."
+if ! command -v vue &> /dev/null; then
+    echo "安装 Vue CLI..."
+    rm -rf ~/.npm-global/lib/node_modules/@vue/cli
+    npm install -g @vue/cli
+else
+    echo "Vue CLI 已安装"
+fi
 
 echo "依赖安装完成！"
 
@@ -80,6 +119,12 @@ PacketReassemblyEnabled = True
 AnomalyDetectionEnabled = True
 TrafficAnalysisEnabled = True
 
+[Elasticsearch]
+Scheme = http
+Host = localhost
+Port = 9200
+Url = http://localhost:9200
+
 [UI]
 WebServerPort = 8080
 DashboardEnabled = True
@@ -95,7 +140,7 @@ cat > scripts/start.sh << EOF
 # 激活虚拟环境
 source "$PWD/venv/bin/activate"
 
-# 使用虚拟环境中的Python启动应用
+# 使用sudo -E保持环境变量并以root权限运行应用
 sudo -E python3 src/main.py
 EOF
 
