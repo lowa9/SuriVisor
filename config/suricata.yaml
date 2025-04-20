@@ -850,7 +850,7 @@ pcap-file:
   #  - auto: Suricata uses a statistical approach to detect when
   #  checksum off-loading is used. (default)
   # Warning: 'checksum-validation' must be set to yes to have checksum tested
-  checksum-checks: auto
+  checksum-checks: no
 
 # See "Advanced Capture Options" below for more options, including Netmap
 # and PF_RING.
@@ -2171,10 +2171,11 @@ napatech:
 ## Configure Suricata to load Suricata-Update managed rules.
 ##
 
-default-rule-path: /var/lib/suricata/rules
+default-rule-path: /home/kai/SuriVisor/config/rules
 
 rule-files:
-  - suricata.rules
+#  - suricata.rules
+  - brute_force.rules
 
 ##
 ## Auxiliary configuration files.

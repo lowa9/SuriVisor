@@ -1,0 +1,40 @@
+#############################################
+# FTP 暴力破解检测规则 (修正版)
+#############################################
+
+# 检测FTP登录失败
+alert tcp any any -> $HOME_NET 21 (msg:"FTP 登录失败"; flow:established,to_server; content:"USER "; nocase; pcre:"/^USER\s+[^\n]+\r?\n/"; flowbits:set,ftp.user; flowbits:noalert; sid:3000001; rev:1;)
+alert tcp $HOME_NET 21 -> any any (msg:"FTP 登录失败响应"; flow:established,from_server; flowbits:isset,ftp.user; content:"530 "; pcre:"/^530\s+.*(?:login|authentication|password)\s+(?:incorrect|failed)/i"; flowbits:set,ftp.failed_login; sid:3000002; rev:1;)
+
+alert tcp any any -> $HOME_NET 21 (msg:"FTP暴力破解攻击(优化版)"; flow:established,to_server;content:"USER "; nocase;pcre:"/USER\s[^\n]+\r\n/s";detection_filter:track by_src, count 3, seconds 60;metadata:service ftp;classtype:attempted-admin;sid:3000003;rev:4;)
+#############################################
+# TELNET 暴力破解检测规则 (修正版)
+#############################################
+
+# 检测TELNET登录失败
+alert tcp any any -> $HOME_NET 23 (msg:"TELNET 登录尝试"; flow:established,to_server; content:"login:"; nocase; flowbits:set,telnet.login; flowbits:noalert; sid:3000004; rev:1;)
+alert tcp any any -> $HOME_NET 23 (msg:"TELNET 密码尝试"; flow:established,to_server; content:"Password:"; nocase; flowbits:isset,telnet.login; flowbits:set,telnet.password; flowbits:noalert; sid:3000005; rev:1;)
+alert tcp $HOME_NET 23 -> any any (msg:"TELNET 登录失败响应"; flow:established,from_server; flowbits:isset,telnet.password; content:"Login incorrect"; nocase; flowbits:set,telnet.failed_login; sid:3000006; rev:1;)
+
+# 检测TELNET暴力破解攻击 (修正)
+alert tcp any any -> $HOME_NET 23 (msg:"TELNET 暴力破解攻击"; flow:established,to_server; flowbits:isset,telnet.failed_login; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-admin; sid:3000007; rev:2;)
+
+#############################################
+# HTTP 暴力破解检测规则 (修正版)
+#############################################
+
+# 检测HTTP POST登录请求
+alert http any any -> $HOME_NET any (msg:"HTTP 登录尝试"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/login"; nocase; pcre:"/login|admin|auth|user/i"; flowbits:set,http.login_attempt; flowbits:noalert; sid:3000008; rev:1;)
+
+# 检测HTTP登录失败响应
+alert http $HOME_NET any -> any any (msg:"HTTP 登录失败响应"; flow:established,from_server; flowbits:isset,http.login_attempt; http.stat_code; content:"401"; http.stat_msg; content:"Unauthorized"; flowbits:set,http.failed_login; sid:3000009; rev:1;)
+alert http $HOME_NET any -> any any (msg:"HTTP 登录失败响应 - 403"; flow:established,from_server; flowbits:isset,http.login_attempt; http.stat_code; content:"403"; http.stat_msg; content:"Forbidden"; flowbits:set,http.failed_login; sid:3000010; rev:1;)
+
+# 检测HTTP暴力破解攻击 (修正)
+alert http any any -> $HOME_NET any (msg:"HTTP 暴力破解攻击"; flow:established,to_server; flowbits:isset,http.failed_login; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-admin; sid:3000011; rev:2;)
+
+# 检测HTTP基本认证暴力破解 (修正)
+alert http any any -> $HOME_NET any (msg:"HTTP 基本认证暴力破解"; flow:established,to_server; http.header; content:"Authorization: Basic"; detection_filter:track by_src, count 15, seconds 60; classtype:attempted-admin; sid:3000012; rev:2;)
+
+# 检测HTTP表单暴力破解 (修正)
+alert http any any -> $HOME_NET any (msg:"HTTP 表单暴力破解"; flow:established,to_server; http.method; content:"POST"; http.uri; pcre:"/login|admin|auth|user/i"; http.request_body; pcre:"/(?:username|user|login|password|pass|pwd)/i"; detection_filter:track by_src, count 15, seconds 60; classtype:attempted-admin; sid:3000013; rev:2;)

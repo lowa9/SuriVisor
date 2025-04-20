@@ -23,7 +23,7 @@ class SuricataProcessManager:
     def __init__(self, 
                  binary_path: str = '/usr/bin/suricata',
                  config_path: str = '/etc/suricata/suricata.yaml',
-                 rule_path: str = '/etc/suricata/rules',
+                 rule_dir: str = '/etc/suricata/rules',
                  log_dir: str = '/var/log/suricata',
                  pid_file: str = '/var/run/suricata.pid'):
         """初始化Suricata进程管理器
@@ -31,13 +31,13 @@ class SuricataProcessManager:
         Args:
             binary_path: Suricata可执行文件路径
             config_path: Suricata配置文件路径
-            rule_path: Suricata规则目录
+            rule_dir: Suricata规则目录
             log_dir: 日志目录
             pid_file: PID文件路径
         """
         self.binary_path = binary_path
         self.config_path = config_path
-        self.rule_path = rule_path
+        self.rule_dir = rule_dir  # 修正变量名
         self.log_dir = log_dir
         self.pid_file = pid_file
         
@@ -92,7 +92,7 @@ class SuricataProcessManager:
                 '-c', self.config_path,
                 '--pidfile', self.pid_file,
                 '-i', interface,
-                '--set', f'default-rule-path={self.rule_path}',
+                '--set', f'default-rule-path={self.rule_dir}',
                 '--set', f'default-log-dir={self.log_dir}'
             ]
             

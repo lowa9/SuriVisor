@@ -87,7 +87,7 @@ class SuriVisor:
             "suricata": {
                 "binary_path": "/usr/bin/suricata",
                 "config_path": os.path.join(os.path.dirname(__file__), '../config/suricata.yaml'),
-                "rule_path": "/etc/suricata/rules",
+                "rule_dir": os.path.join(os.path.dirname(__file__), '../config/rules'),
                 "monitor_interface": "any",
                 "elasticsearch": {
                     "hosts": ["http://localhost:9200"],
@@ -222,7 +222,7 @@ class SuriVisor:
             self.suricata_manager = SuricataProcessManager(
                 binary_path=self.config["suricata"]["binary_path"],
                 config_path=self.config["suricata"]["config_path"],
-                rule_path=self.config["suricata"]["rule_path"],
+                rule_dir=self.config["suricata"]["rule_dir"],
                 log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata")
             )
             

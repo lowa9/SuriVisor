@@ -1,0 +1,90 @@
+#############################################
+# 端口扫描检测规则
+#############################################
+
+# 检测TCP SYN扫描 (快速连续的SYN包到不同端口)
+alert tcp any any -> $HOME_NET any (msg:"TCP SYN 端口扫描检测"; flow:stateless; flags:S,12; threshold:type threshold, track by_src, count 30, seconds 60; classtype:attempted-recon; sid:4000001; rev:1;)
+
+# 检测TCP连接扫描 (快速连续的完整TCP连接尝试)
+alert tcp any any -> $HOME_NET any (msg:"TCP 连接端口扫描检测"; flow:stateless; flags:S,12; detection_filter:track by_src, count 20, seconds 60; flowbits:set,tcp.scan; classtype:attempted-recon; sid:4000002; rev:1;)
+
+# 检测TCP FIN扫描 (隐蔽扫描)
+alert tcp any any -> $HOME_NET any (msg:"TCP FIN 隐蔽扫描检测"; flow:stateless; flags:F,12; threshold:type threshold, track by_src, count 15, seconds 30; classtype:attempted-recon; sid:4000003; rev:1;)
+
+# 检测TCP NULL扫描 (无标志位扫描)
+alert tcp any any -> $HOME_NET any (msg:"TCP NULL 扫描检测"; flow:stateless; flags:0; threshold:type threshold, track by_src, count 15, seconds 30; classtype:attempted-recon; sid:4000004; rev:1;)
+
+# 检测TCP XMAS扫描 (圣诞树扫描)
+alert tcp any any -> $HOME_NET any (msg:"TCP XMAS 扫描检测"; flow:stateless; flags:FPU,12; threshold:type threshold, track by_src, count 15, seconds 30; classtype:attempted-recon; sid:4000005; rev:1;)
+
+#############################################
+# UDP 扫描检测规则
+#############################################
+
+# 检测UDP端口扫描
+alert udp any any -> $HOME_NET any (msg:"UDP 端口扫描检测"; threshold:type threshold, track by_src, count 30, seconds 60; classtype:attempted-recon; sid:4000006; rev:1;)
+
+# 检测UDP空包扫描
+alert udp any any -> $HOME_NET any (msg:"UDP 空包扫描检测"; dsize:0; threshold:type threshold, track by_src, count 15, seconds 30; classtype:attempted-recon; sid:4000007; rev:1;)
+
+#############################################
+# ICMP 扫描检测规则
+#############################################
+
+# 检测ICMP Echo扫描 (Ping扫描)
+alert icmp any any -> $HOME_NET any (msg:"ICMP Echo 扫描检测"; itype:8; threshold:type threshold, track by_src, count 20, seconds 60; classtype:attempted-recon; sid:4000008; rev:1;)
+
+# 检测ICMP地址掩码请求扫描
+alert icmp any any -> $HOME_NET any (msg:"ICMP 地址掩码请求扫描"; itype:17; classtype:attempted-recon; sid:4000009; rev:1;)
+
+# 检测ICMP时间戳请求扫描
+alert icmp any any -> $HOME_NET any (msg:"ICMP 时间戳请求扫描"; itype:13; classtype:attempted-recon; sid:4000010; rev:1;)
+
+#############################################
+# 版本扫描检测规则
+#############################################
+
+# 检测HTTP服务版本扫描
+alert tcp any any -> $HOME_NET any (msg:"HTTP 服务版本扫描"; flow:to_server,established; content:"HEAD /"; depth:6; content:"User-Agent: Nmap"; nocase; classtype:attempted-recon; sid:4000011; rev:1;)
+
+# 检测SSH版本扫描
+alert tcp any any -> $HOME_NET 22 (msg:"SSH 版本扫描"; flow:to_server,established; content:"SSH-"; depth:4; threshold:type threshold, track by_src, count 5, seconds 60; classtype:attempted-recon; sid:4000012; rev:1;)
+
+# 检测FTP版本扫描
+alert tcp any any -> $HOME_NET 21 (msg:"FTP 版本扫描"; flow:to_server,established; content:"HELP"; depth:4; pcre:"/^HELP\s*\r?\n/"; threshold:type threshold, track by_src, count 3, seconds 60; classtype:attempted-recon; sid:4000013; rev:1;)
+
+# 检测SMTP版本扫描
+alert tcp any any -> $HOME_NET 25 (msg:"SMTP 版本扫描"; flow:to_server,established; content:"HELO"; depth:4; pcre:"/^HELO\s+[^\n]*\r?\n/"; threshold:type threshold, track by_src, count 3, seconds 60; classtype:attempted-recon; sid:4000014; rev:1;)
+
+#############################################
+# 漏洞扫描检测规则
+#############################################
+
+# 检测常见漏洞扫描工具特征
+alert http any any -> $HOME_NET any (msg:"漏洞扫描工具检测 - Nikto"; flow:established,to_server; http.header; content:"Nikto"; nocase; classtype:attempted-recon; sid:4000015; rev:1;)
+
+alert http any any -> $HOME_NET any (msg:"漏洞扫描工具检测 - Acunetix"; flow:established,to_server; http.header; content:"Acunetix"; nocase; classtype:attempted-recon; sid:4000016; rev:1;)
+
+alert http any any -> $HOME_NET any (msg:"漏洞扫描工具检测 - OpenVAS"; flow:established,to_server; http.header; content:"OpenVAS"; nocase; classtype:attempted-recon; sid:4000017; rev:1;)
+
+# 检测SQL注入扫描尝试
+alert http any any -> $HOME_NET any (msg:"SQL注入扫描尝试"; flow:established,to_server; http.uri; content:"'"; pcre:"/[\?&][^=]*=.*'.*--/"; classtype:web-application-attack; sid:4000018; rev:1;)
+
+# 检测目录遍历扫描尝试
+alert http any any -> $HOME_NET any (msg:"目录遍历扫描尝试"; flow:established,to_server; http.uri; pcre:"/\.\.[\/\\]/"; classtype:web-application-attack; sid:4000019; rev:1;)
+
+# 检测XSS扫描尝试
+alert http any any -> $HOME_NET any (msg:"XSS扫描尝试"; flow:established,to_server; http.uri; content:"<script>"; nocase; classtype:web-application-attack; sid:4000020; rev:1;)
+
+#############################################
+# 高级扫描检测规则
+#############################################
+
+# 检测分布式扫描 (多源IP扫描同一目标)
+alert tcp any any -> $HOME_NET any (msg:"分布式端口扫描检测"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 100, seconds 60; classtype:attempted-recon; sid:4000021; rev:1;)
+
+# 检测低速扫描 (慢速扫描以逃避检测)
+alert tcp any any -> $HOME_NET any (msg:"低速端口扫描检测"; flow:stateless; flags:S,12; threshold:type threshold, track by_src, count 20, seconds 3600; classtype:attempted-recon; sid:4000022; rev:1;)
+
+# 检测操作系统指纹识别扫描
+alert tcp any any -> $HOME_NET any (msg:"操作系统指纹识别扫描"; flow:stateless; flags:S,12; tcp.mss:1; tcp.window:1024; classtype:attempted-recon; sid:4000023; rev:1;)

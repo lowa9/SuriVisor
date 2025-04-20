@@ -8,7 +8,13 @@ if command -v suricata &> /dev/null; then
 else
     echo "安装Suricata..."
     sudo apt-get update
-    sudo apt-get install -y suricata
+    sudo apt-get install -y suricata suricata-update
+fi
+
+# 安装suricata-update工具（如果未随Suricata一起安装）
+if ! command -v suricata-update &> /dev/null; then
+    echo "安装suricata-update工具..."
+    sudo apt-get install -y suricata-update
 fi
 
 # 检查Python依赖
@@ -102,6 +108,19 @@ if [ -f "/etc/suricata/suricata.yaml" ]; then
     echo "已复制Suricata配置文件到项目目录"
 fi
 
+# 下载ET OPEN规则集
+echo "下载ET OPEN规则集..."
+mkdir -p ~/SuriVisor/config/rules
+
+# 配置suricata-update使用ET OPEN规则集
+sudo suricata-update enable-source et/open
+
+# 下载规则到项目目录
+sudo suricata-update update-sources
+sudo suricata-update --no-reload --output ~/SuriVisor/config/rules
+
+echo "ET OPEN规则集已下载到config/rules目录"
+
 # 创建基本系统配置
 cat > config/system.conf << EOF
 [General]
@@ -112,7 +131,7 @@ DataDir = data/
 [Suricata]
 BinaryPath = /usr/bin/suricata
 ConfigPath = config/suricata.yaml
-RulePath = /etc/suricata/rules
+RulePath = config/rules
 
 [Analysis]
 PacketReassemblyEnabled = True
