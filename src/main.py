@@ -221,13 +221,12 @@ class SuriVisor:
     
     def initialize_components(self):
         """
-        初始化系统组件
+        初始化在线分析流量系统组件
         
         Returns:
             bool: 初始化是否成功
         """
         try:
-            
             # 初始化日志监控器
             logger.info("初始化Suricata日志监控器...")
             self.log_monitor = SuricataLogMonitor(
@@ -591,7 +590,7 @@ class SuriVisor:
     
     def start(self, start_suricata=True):
         """
-        启动系统
+        启动实时流量分析告警系统
         
         Args:
             start_suricata (bool): 是否启动Suricata进程
@@ -962,70 +961,65 @@ class SuriVisor:
         except Exception as e:
             logger.error(f"处理PCAP文件时发生错误: {e}")
             return {"status": "error", "message": f"处理PCAP文件时发生错误: {e}"}
-    
-    def _simulate_pcap_parsing(self, pcap_file):
-        """
-        模拟解析PCAP文件（用于演示）
+
+    def analyze_pcap_file(self, pcap_file):
+        """离线分析PCAP文件
         
         Args:
+            surivisor (SuriVisor): SuriVisor实例
             pcap_file (str): PCAP文件路径
             
         Returns:
-            list: 模拟的数据包列表
+            bool: 分析是否成功
         """
-        # 这里仅用于演示，实际应用中应该使用pyshark或scapy解析PCAP文件
-        # 模拟生成一些数据包
-        packets = []
+        if not os.path.exists(pcap_file):
+            print(f"错误: PCAP文件 {pcap_file} 不存在")
+            return False
         
-        # 模拟HTTP流量
-        for i in range(10):
-            packets.append({
-                'src_ip': '192.168.1.100',
-                'src_port': 12345 + i,
-                'dst_ip': '93.184.216.34',  # example.com
-                'dst_port': 80,
-                'protocol': 'tcp',
-                'seq_num': i,
-                'data': f'GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n'.encode(),
-                'is_last': (i == 9)
-            })
+        print(f"\n开始分析PCAP文件: {pcap_file}")
         
-        # 模拟端口扫描攻击
-        for i in range(20):
-            packets.append({
-                'src_ip': '10.0.0.99',
-                'src_port': 54321,
-                'dst_ip': '192.168.1.1',
-                'dst_port': 1000 + i,
-                'protocol': 'tcp',
-                'seq_num': i,
-                'data': b'\x00\x00\x00\x00',  # 空数据
-                'is_last': (i % 5 == 4)  # 每5个包为一个流
-            })
-        
-        return packets
-    
-    def _extract_packet_metrics(self, packet):
-        """
-        从数据包中提取指标
-        
-        Args:
-            packet (dict): 数据包信息
+        # 使用Suricata进程管理器进行离线分析
+        try:
+            # 确保Suricata进程管理器已初始化
+            if not hasattr(self, 'suricata_manager') or not self.suricata_manager:
+                print("Suricata进程管理器未初始化，无法进行离线分析")
+                return False
             
-        Returns:
-            dict: 提取的指标
-        """
-        # TODO: 从数据包中提取各种指标
-        # 实际应用中应该根据数据包内容提取各种指标
-        # 这里仅用于演示
-        return {
-            "packet_size": len(packet.get('data', b'')),
-            "is_tcp": 1 if packet.get('protocol') == 'tcp' else 0,
-            "is_udp": 1 if packet.get('protocol') == 'udp' else 0,
-            "is_icmp": 1 if packet.get('protocol') == 'icmp' else 0,
-            "src_port": packet.get('src_port', 0),
-            "dst_port": packet.get('dst_port', 0)
-        }
+            # 设置日志目录
+            log_dir = os.path.join(self.config["general"]["data_dir"], "logs/suricata")
+            
+            print("正在使用Suricata分析PCAP文件...")
+            # 调用进程管理器的analyze_pcap方法进行分析
+            result = self.suricata_manager.analyze_pcap(pcap_file, log_dir, real_time=True)
+            
+            if not result["success"]:
+                print(f"Suricata分析失败: {result.get('error', '未知错误')}")
+                return False
+            
+            print("PCAP文件分析完成")
+            
+            # 显示分析结果摘要
+            print("\n分析结果摘要:")
+            print(f"检测到 {result['alert_count']} 个告警")
+            
+            # 显示前5个告警
+            if result['alerts']:
+                print("\n前5个告警:")
+                for i, alert in enumerate(result['alerts']):
+                    print(f"[{i+1}] {alert['signature']}")
+                    print(f"    严重程度: {alert['severity']}")
+                    print(f"    源IP: {alert['src_ip']} -> 目标IP: {alert['dest_ip']}")
+                    print()
+            
+            return True
+        except Exception as e:
+            print(f"离线分析过程中发生错误: {e}")
+            return False
+        finally:
+            # 不需要停止Suricata进程，因为analyze_pcap方法会创建一个独立的进程
+            # 只需要清理日志监控
+            if hasattr(self, 'log_monitor') and self.log_monitor:
+                self.log_monitor.stop_monitoring()
     
     def generate_report(self, output_file=None, report_type="json"):
         """
@@ -1103,100 +1097,40 @@ class SuriVisor:
             logger.error(f"保存系统报告失败: {e}")
             return False
 
-
-def analyze_pcap_file(surivisor, pcap_file):
-    """离线分析PCAP文件
-    
-    Args:
-        surivisor (SuriVisor): SuriVisor实例
-        pcap_file (str): PCAP文件路径
+    def start_online_detection(self):
+        """启动在线检测模式
         
-    Returns:
-        bool: 分析是否成功
-    """
-    if not os.path.exists(pcap_file):
-        print(f"错误: PCAP文件 {pcap_file} 不存在")
-        return False
-    
-    print(f"\n开始分析PCAP文件: {pcap_file}")
-     
-    # 使用Suricata进程管理器进行离线分析
-    try:
-        # 确保Suricata进程管理器已初始化
-        if not hasattr(surivisor, 'suricata_manager') or not surivisor.suricata_manager:
-            print("Suricata进程管理器未初始化，无法进行离线分析")
+        Args:
+            surivisor (self): SuriVisor实例
+            
+        Returns:
+            bool: 启动是否成功
+        """
+        print("\n启动在线检测模式...")
+        
+        # 启动系统并启动Suricata进程
+        if not self.start(start_suricata=True):
+            print("启动在线检测模式失败")
             return False
         
-        # 设置日志目录
-        log_dir = os.path.join(surivisor.config["general"]["data_dir"], "logs/suricata")
+        print("在线检测模式已启动")
+        print("Suricata进程正在监控网络流量")
+        print("按 Ctrl+C 停止检测")
         
-        print("正在使用Suricata分析PCAP文件...")
-        # 调用进程管理器的analyze_pcap方法进行分析
-        result = surivisor.suricata_manager.analyze_pcap(pcap_file, log_dir)
-        
-        if not result["success"]:
-            print(f"Suricata分析失败: {result.get('error', '未知错误')}")
-            return False
-        
-        print("PCAP文件分析完成")
-        
-        # 显示分析结果摘要
-        print("\n分析结果摘要:")
-        print(f"检测到 {result['alert_count']} 个告警")
-        
-        # 显示前5个告警
-        if result['alerts']:
-            print("\n前5个告警:")
-            for i, alert in enumerate(result['alerts']):
-                print(f"[{i+1}] {alert['signature']}")
-                print(f"    严重程度: {alert['severity']}")
-                print(f"    源IP: {alert['src_ip']} -> 目标IP: {alert['dest_ip']}")
-                print()
+        try:
+            # 显示实时统计信息
+            while True:
+                # 获取Suricata状态
+                if self.suricata_manager:
+                    status = self.suricata_manager.status()
+                    print(f"\r运行时间: {status.get('uptime', 0)}秒 | 内存使用: {status.get('memory_usage', 0)}KB", end="")
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n\n正在停止在线检测...")
+            self.stop()
+            print("在线检测已停止")
         
         return True
-    except Exception as e:
-        print(f"离线分析过程中发生错误: {e}")
-        return False
-    finally:
-        # 不需要停止Suricata进程，因为analyze_pcap方法会创建一个独立的进程
-        # 只需要清理日志监控
-        if hasattr(surivisor, 'log_monitor') and surivisor.log_monitor:
-            surivisor.log_monitor.stop_monitoring()
-
-def start_online_detection(surivisor):
-    """启动在线检测模式
-    
-    Args:
-        surivisor (SuriVisor): SuriVisor实例
-        
-    Returns:
-        bool: 启动是否成功
-    """
-    print("\n启动在线检测模式...")
-    
-    # 启动系统并启动Suricata进程
-    if not surivisor.start(start_suricata=True):
-        print("启动在线检测模式失败")
-        return False
-    
-    print("在线检测模式已启动")
-    print("Suricata进程正在监控网络流量")
-    print("按 Ctrl+C 停止检测")
-    
-    try:
-        # 显示实时统计信息
-        while True:
-            # 获取Suricata状态
-            if surivisor.suricata_manager:
-                status = surivisor.suricata_manager.status()
-                print(f"\r运行时间: {status.get('uptime', 0)}秒 | 内存使用: {status.get('memory_usage', 0)}KB", end="")
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n\n正在停止在线检测...")
-        surivisor.stop()
-        print("在线检测已停止")
-    
-    return True
 
 def show_menu():
     """显示主菜单"""
@@ -1274,11 +1208,11 @@ if __name__ == "__main__":
             # 离线分析模式
             pcap_file = select_pcap_file(surivisor.config["general"]["data_dir"])
             if pcap_file:
-                analyze_pcap_file(surivisor, pcap_file)
+                surivisor.analyze_pcap_file(pcap_file)
         
         elif choice == "2":
             # 在线检测模式
-            start_online_detection(surivisor)
+            surivisor.start_online_detection()
         
         elif choice == "0":
             print("\n感谢使用SuriVisor系统，再见！")
