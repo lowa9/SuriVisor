@@ -990,7 +990,7 @@ class SuriVisor:
             
             print("正在使用Suricata分析PCAP文件...")
             # 调用进程管理器的analyze_pcap方法进行分析
-            result = self.suricata_manager.analyze_pcap(pcap_file, log_dir, real_time=True)
+            result = self.suricata_manager.analyze_pcap(pcap_file, log_dir)
             
             if not result["success"]:
                 print(f"Suricata分析失败: {result.get('error', '未知错误')}")
@@ -1002,9 +1002,9 @@ class SuriVisor:
             print("\n分析结果摘要:")
             print(f"检测到 {result['alert_count']} 个告警")
             
-            # 显示前5个告警
+            # 显示新捕获的告警
             if result['alerts']:
-                print("\n前5个告警:")
+                print("\n新捕获的告警:")
                 for i, alert in enumerate(result['alerts']):
                     print(f"[{i+1}] {alert['signature']}")
                     print(f"    严重程度: {alert['severity']}")

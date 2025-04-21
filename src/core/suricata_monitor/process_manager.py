@@ -208,12 +208,13 @@ class SuricataProcessManager:
         # 检查进程状态
         return self.process.poll() is None
     
-    def analyze_pcap(self, pcap_file: str, log_dir: str = None) -> Dict[str, Any]:
-        """离线分析PCAP文件
+    def analyze_pcap(self, pcap_file: str, log_dir: str = None, callback = None) -> Dict[str, Any]:
+        """离线分析PCAP文件（非实时模式）
         
         Args:
             pcap_file: PCAP文件路径
             log_dir: 日志输出目录，如果为None则使用默认日志目录
+            callback: 回调函数，接收告警事件作为参数
             
         Returns:
             Dict[str, Any]: 分析结果，包含成功状态和分析摘要
@@ -247,6 +248,82 @@ class SuricataProcessManager:
                 universal_newlines=True
             )
             
+            # 分析结果处理
+            eve_json = os.path.join(output_log_dir, "eve.json")
+            result = {"success": True, "alerts": [], "alert_count": 0}
+            
+            # 检查eve.json文件是否存在，如果存在则记录当前行数
+            initial_line_count = 0
+            if os.path.exists(eve_json):
+                with open(eve_json, 'r') as f:
+                    initial_line_count = sum(1 for _ in f)
+                logger.info(f"分析前eve.json已有{initial_line_count}行")
+            
+            logger.info(f"等待Suricata完成PCAP分析...")
+            
+            # 等待分析完成
+            stdout, stderr = process.communicate()
+            
+            if process.returncode != 0:
+                logger.error(f"Suricata分析失败: {stderr}")
+                return {"success": False, "error": stderr}
+            
+            # 等待eve.json文件创建
+            max_wait = 30  # 最大等待时间（秒）
+            wait_time = 0
+            while not os.path.exists(eve_json) and wait_time < max_wait:
+                time.sleep(1)
+                wait_time += 1
+            
+            if not os.path.exists(eve_json):
+                logger.warning(f"等待{max_wait}秒后eve.json文件仍未创建")
+                return {"success": False, "error": "未能创建分析结果文件"}
+            
+            # 分析完成后处理结果
+            try:
+                # 读取eve.json文件，只处理新增的行
+                with open(eve_json, 'r') as f:
+                    # 跳过已有的行
+                    for _ in range(initial_line_count):
+                        next(f, None)
+                    
+                    # 处理新增的行
+                    for line in f:
+                        if not line.strip():
+                            continue
+                            
+                        try:
+                            event = json.loads(line)
+                            
+                            # 处理告警事件
+                            if event.get('event_type') == 'alert':
+                                alert_info = {
+                                    "signature": event.get('alert', {}).get('signature', '未知告警'),
+                                    "severity": event.get('alert', {}).get('severity', '未知'),
+                                    "src_ip": event.get('src_ip', '未知'),
+                                    "dest_ip": event.get('dest_ip', '未知'),
+                                    "timestamp": event.get('timestamp', ''),
+                                    "category": event.get('alert', {}).get('category', ''),
+                                    "action": event.get('alert', {}).get('action', '')
+                                }
+                                
+                                # 添加到告警列表
+                                result["alerts"].append(alert_info)
+                                result["alert_count"] += 1
+                                
+                                # 如果提供了回调函数，调用它
+                                if callback and callable(callback):
+                                    callback(alert_info)
+                                    
+                                logger.info(f"检测到告警: {alert_info['signature']}")
+                                
+                        except json.JSONDecodeError:
+                            logger.warning(f"无法解析JSON行: {line}")
+                            continue
+            except Exception as e:
+                logger.error(f"处理分析结果时发生错误: {e}")
+                return {"success": False, "error": str(e)}
+            
             # 等待分析完成
             stdout, stderr = process.communicate()
             
@@ -255,42 +332,7 @@ class SuricataProcessManager:
                 return {"success": False, "error": stderr}
             
             logger.info("PCAP文件分析完成")
-            
-            # 分析结果处理
-            eve_json = os.path.join(output_log_dir, "eve.json")
-            result = {"success": True, "alerts": [], "alert_count": 0}
-            
-            if os.path.exists(eve_json):
-                try:
-                    with open(eve_json, 'r') as f:
-                        events = [json.loads(line) for line in f if line.strip()]
-                    
-                    # 统计告警
-                    alerts = [e for e in events if e.get('event_type') == 'alert']
-                    result["alert_count"] = len(alerts)
-                    
-                    # 提取前5个告警详情
-                    top_alerts = []
-                    for alert in alerts[:5]:
-                        top_alerts.append({
-                            "signature": alert.get('alert', {}).get('signature', '未知告警'),
-                            "severity": alert.get('alert', {}).get('severity', '未知'),
-                            "src_ip": alert.get('src_ip', '未知'),
-                            "dest_ip": alert.get('dest_ip', '未知'),
-                            "timestamp": alert.get('timestamp', ''),
-                            "category": alert.get('alert', {}).get('category', ''),
-                            "action": alert.get('alert', {}).get('action', '')
-                        })
-                    
-                    result["alerts"] = top_alerts
-                    result["events_count"] = len(events)
-                    result["log_file"] = eve_json
-                    
-                except Exception as e:
-                    logger.error(f"读取分析结果失败: {e}")
-                    result["error"] = f"读取分析结果失败: {str(e)}"
-            else:
-                result["error"] = "未找到分析结果文件"
+            result["log_file"] = eve_json
             
             return result
             
