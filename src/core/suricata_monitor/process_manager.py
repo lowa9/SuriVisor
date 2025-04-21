@@ -13,6 +13,7 @@ import time
 import signal
 import logging
 import subprocess
+import json
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,96 @@ class SuricataProcessManager:
         
         # 检查进程状态
         return self.process.poll() is None
+    
+    def analyze_pcap(self, pcap_file: str, log_dir: str = None) -> Dict[str, Any]:
+        """离线分析PCAP文件
+        
+        Args:
+            pcap_file: PCAP文件路径
+            log_dir: 日志输出目录，如果为None则使用默认日志目录
+            
+        Returns:
+            Dict[str, Any]: 分析结果，包含成功状态和分析摘要
+        """
+        if not os.path.exists(pcap_file):
+            logger.error(f"PCAP文件不存在: {pcap_file}")
+            return {"success": False, "error": f"PCAP文件不存在: {pcap_file}"}
+        
+        # 使用当前配置的日志目录或指定的日志目录
+        output_log_dir = log_dir if log_dir else self.log_dir
+        os.makedirs(output_log_dir, exist_ok=True)
+        
+        try:
+            # 构建Suricata离线分析命令
+            cmd = [
+                self.binary_path,
+                '-c', self.config_path,
+                '-r', pcap_file,
+                '--set', f'default-rule-path={self.rule_dir}',
+                '-l', output_log_dir
+            ]
+            
+            logger.info(f"开始离线分析PCAP文件: {pcap_file}")
+            logger.debug(f"执行命令: {' '.join(cmd)}")
+            
+            # 启动独立的Suricata进程进行分析
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            # 等待分析完成
+            stdout, stderr = process.communicate()
+            
+            if process.returncode != 0:
+                logger.error(f"Suricata分析失败: {stderr}")
+                return {"success": False, "error": stderr}
+            
+            logger.info("PCAP文件分析完成")
+            
+            # 分析结果处理
+            eve_json = os.path.join(output_log_dir, "eve.json")
+            result = {"success": True, "alerts": [], "alert_count": 0}
+            
+            if os.path.exists(eve_json):
+                try:
+                    with open(eve_json, 'r') as f:
+                        events = [json.loads(line) for line in f if line.strip()]
+                    
+                    # 统计告警
+                    alerts = [e for e in events if e.get('event_type') == 'alert']
+                    result["alert_count"] = len(alerts)
+                    
+                    # 提取前5个告警详情
+                    top_alerts = []
+                    for alert in alerts[:5]:
+                        top_alerts.append({
+                            "signature": alert.get('alert', {}).get('signature', '未知告警'),
+                            "severity": alert.get('alert', {}).get('severity', '未知'),
+                            "src_ip": alert.get('src_ip', '未知'),
+                            "dest_ip": alert.get('dest_ip', '未知'),
+                            "timestamp": alert.get('timestamp', ''),
+                            "category": alert.get('alert', {}).get('category', ''),
+                            "action": alert.get('alert', {}).get('action', '')
+                        })
+                    
+                    result["alerts"] = top_alerts
+                    result["events_count"] = len(events)
+                    result["log_file"] = eve_json
+                    
+                except Exception as e:
+                    logger.error(f"读取分析结果失败: {e}")
+                    result["error"] = f"读取分析结果失败: {str(e)}"
+            else:
+                result["error"] = "未找到分析结果文件"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"离线分析过程中发生错误: {e}")
+            return {"success": False, "error": str(e)}
     
     def __del__(self):
         """析构函数，确保进程被正确关闭"""
