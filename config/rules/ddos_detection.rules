@@ -1,0 +1,126 @@
+#############################################
+# DDoS攻击检测规则
+#############################################
+
+#############################################
+# TCP SYN洪水攻击检测规则
+#############################################
+
+# 检测TCP SYN洪水攻击 (大量SYN包到单一目标)
+alert tcp any any -> $HOME_NET any (msg:"TCP SYN洪水攻击检测"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 1000, seconds 10; classtype:attempted-dos; sid:5000001; rev:1;)
+
+# 检测TCP SYN洪水攻击 (针对特定服务)
+alert tcp any any -> $HOME_NET 80 (msg:"TCP SYN洪水攻击针对Web服务"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 800, seconds 10; classtype:attempted-dos; sid:5000002; rev:1;)
+
+alert tcp any any -> $HOME_NET 443 (msg:"TCP SYN洪水攻击针对HTTPS服务"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 800, seconds 10; classtype:attempted-dos; sid:5000003; rev:1;)
+
+# 检测TCP RST洪水攻击
+alert tcp any any -> $HOME_NET any (msg:"TCP RST洪水攻击检测"; flow:stateless; flags:R,12; threshold:type both, track by_dst, count 500, seconds 10; classtype:attempted-dos; sid:5000004; rev:1;)
+
+#############################################
+# UDP洪水攻击检测规则
+#############################################
+
+# 检测UDP洪水攻击 (大量UDP包到单一目标)
+alert udp any any -> $HOME_NET any (msg:"UDP洪水攻击检测"; threshold:type both, track by_dst, count 1000, seconds 10; classtype:attempted-dos; sid:5000005; rev:1;)
+
+# 检测针对特定服务的UDP洪水
+alert udp any any -> $HOME_NET 53 (msg:"UDP洪水攻击针对DNS服务"; threshold:type both, track by_dst, count 500, seconds 10; classtype:attempted-dos; sid:5000006; rev:1;)
+
+alert udp any any -> $HOME_NET 161 (msg:"UDP洪水攻击针对SNMP服务"; threshold:type both, track by_dst, count 300, seconds 10; classtype:attempted-dos; sid:5000007; rev:1;)
+
+#############################################
+# ICMP洪水攻击检测规则
+#############################################
+
+# 检测ICMP洪水攻击 (Ping洪水)
+alert icmp any any -> $HOME_NET any (msg:"ICMP洪水攻击检测"; itype:8; threshold:type both, track by_dst, count 500, seconds 10; classtype:attempted-dos; sid:5000008; rev:1;)
+
+# 检测ICMP碎片攻击
+alert icmp any any -> $HOME_NET any (msg:"ICMP碎片攻击检测"; fragbits:M; threshold:type both, track by_dst, count 300, seconds 10; classtype:attempted-dos; sid:5000009; rev:1;)
+
+#############################################
+# HTTP/HTTPS洪水攻击检测规则
+#############################################
+
+# 检测HTTP GET洪水攻击
+alert http any any -> $HOME_NET any (msg:"HTTP GET洪水攻击检测"; flow:established,to_server; http.method; content:"GET"; threshold:type both, track by_dst, count 1000, seconds 10; classtype:attempted-dos; sid:5000010; rev:1;)
+
+# 检测HTTP POST洪水攻击
+alert http any any -> $HOME_NET any (msg:"HTTP POST洪水攻击检测"; flow:established,to_server; http.method; content:"POST"; threshold:type both, track by_dst, count 500, seconds 10; classtype:attempted-dos; sid:5000011; rev:1;)
+
+# 检测慢速HTTP攻击 (Slowloris)
+alert http any any -> $HOME_NET any (msg:"慢速HTTP攻击检测 (Slowloris)"; flow:established,to_server; http.header; content:"X-a:"; pcre:"/^X-a: \d{1,5}\r\n/"; threshold:type both, track by_src, count 100, seconds 60; classtype:attempted-dos; sid:5000012; rev:1;)
+
+#############################################
+# DNS放大攻击检测规则
+#############################################
+
+# 检测DNS放大攻击 (大量DNS响应)
+alert udp any 53 -> $HOME_NET any (msg:"DNS放大攻击检测 - 大量响应"; threshold:type both, track by_dst, count 500, seconds 10; dsize:>512; classtype:attempted-dos; sid:5000013; rev:1;)
+
+# 检测DNS ANY查询 (常用于DNS放大攻击)
+alert udp $HOME_NET any -> any 53 (msg:"DNS ANY查询检测 - 可能用于DNS放大"; content:"|00 00 FF 00 01|"; classtype:attempted-dos; sid:5000014; rev:1;)
+
+#############################################
+# NTP放大攻击检测规则
+#############################################
+
+# 检测NTP MONLIST请求 (用于NTP放大攻击)
+alert udp $HOME_NET any -> any 123 (msg:"NTP MONLIST请求检测 - 可能用于NTP放大"; content:"|17 00 03 2A|"; offset:0; depth:4; classtype:attempted-dos; sid:5000015; rev:1;)
+
+# 检测NTP放大攻击 (大量NTP响应)
+alert udp any 123 -> $HOME_NET any (msg:"NTP放大攻击检测 - 大量响应"; dsize:>200; threshold:type both, track by_dst, count 100, seconds 10; classtype:attempted-dos; sid:5000016; rev:1;)
+
+#############################################
+# SSDP放大攻击检测规则
+#############################################
+
+# 检测SSDP放大攻击
+alert udp any 1900 -> $HOME_NET any (msg:"SSDP放大攻击检测"; content:"HTTP/1.1 200 OK"; threshold:type both, track by_dst, count 100, seconds 10; classtype:attempted-dos; sid:5000017; rev:1;)
+
+#############################################
+# 分布式攻击检测规则
+#############################################
+
+# 检测分布式SYN洪水攻击 (多源IP到单一目标)
+alert tcp any any -> $HOME_NET any (msg:"分布式SYN洪水攻击检测"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 2000, seconds 10; classtype:attempted-dos; sid:5000018; rev:1;)
+
+# 检测分布式HTTP攻击
+alert http any any -> $HOME_NET any (msg:"分布式HTTP攻击检测"; flow:established,to_server; http.method; content:"GET"; threshold:type both, track by_dst, count 2000, seconds 10; classtype:attempted-dos; sid:5000019; rev:1;)
+
+#############################################
+# 连接耗尽攻击检测规则
+#############################################
+
+# 检测TCP连接耗尽攻击 (大量半开连接)
+alert tcp any any -> $HOME_NET any (msg:"TCP连接耗尽攻击检测"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 1500, seconds 30; flowbits:set,tcp.synflood; classtype:attempted-dos; sid:5000020; rev:1;)
+
+# 检测连接表耗尽攻击 (针对防火墙/负载均衡器)
+alert tcp any any -> $HOME_NET any (msg:"连接表耗尽攻击检测"; flow:stateless; flags:S,12; threshold:type both, track by_dst, count 3000, seconds 60; classtype:attempted-dos; sid:5000021; rev:1;)
+
+#############################################
+# 应用层DDoS攻击检测规则
+#############################################
+
+# 检测SSL/TLS握手洪水攻击
+alert tcp any any -> $HOME_NET 443 (msg:"SSL/TLS握手洪水攻击检测"; flow:established,to_server; content:"|16 03|"; depth:2; threshold:type both, track by_dst, count 500, seconds 10; classtype:attempted-dos; sid:5000022; rev:1;)
+
+# 检测HTTP CC (Challenge Collapsar)攻击
+alert http any any -> $HOME_NET any (msg:"HTTP CC攻击检测"; flow:established,to_server; http.uri; content:".php"; http.header; content:"User-Agent"; pcre:"/User-Agent: .*(?:Mozilla|Opera|Chrome|Safari|Firefox).*\r\n/"; threshold:type both, track by_dst, count 1000, seconds 30; classtype:attempted-dos; sid:5000023; rev:1;)
+
+# 检测HTTP动态资源请求洪水
+alert http any any -> $HOME_NET any (msg:"HTTP动态资源请求洪水检测"; flow:established,to_server; http.uri; pcre:"/\.(php|asp|aspx|jsp)\?/"; threshold:type both, track by_dst, count 800, seconds 30; classtype:attempted-dos; sid:5000024; rev:1;)
+
+#############################################
+# 反射/放大攻击检测规则
+#############################################
+
+# 检测SNMP放大攻击
+alert udp any 161 -> $HOME_NET any (msg:"SNMP放大攻击检测"; dsize:>200; threshold:type both, track by_dst, count 100, seconds 10; classtype:attempted-dos; sid:5000025; rev:1;)
+
+# 检测Memcached放大攻击
+alert udp any 11211 -> $HOME_NET any (msg:"Memcached放大攻击检测"; dsize:>1000; threshold:type both, track by_dst, count 50, seconds 10; classtype:attempted-dos; sid:5000026; rev:1;)
+
+# 检测CLDAP放大攻击
+alert udp any 389 -> $HOME_NET any (msg:"CLDAP放大攻击检测"; dsize:>1000; threshold:type both, track by_dst, count 50, seconds 10; classtype:attempted-dos; sid:5000027; rev:1;)
