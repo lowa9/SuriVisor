@@ -310,7 +310,10 @@ class SuricataProcessManager:
                                     "signature": event.get('alert', {}).get('signature', '未知告警'),
                                     "severity": event.get('alert', {}).get('severity', '未知'),
                                     "src_ip": event.get('src_ip', '未知'),
+                                    "src_port": event.get('src_port', '未知'),
                                     "dest_ip": event.get('dest_ip', '未知'),
+                                    "dest_port": event.get('dest_port', '未知'),
+                                    "proto": event.get('proto', '未知'),
                                     "timestamp": event.get('timestamp', ''),
                                     "category": event.get('alert', {}).get('category', ''),
                                     "action": event.get('alert', {}).get('action', '')

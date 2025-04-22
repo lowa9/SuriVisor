@@ -259,18 +259,26 @@
         
         <table>
             <tr>
+                <th>序号</th>
                 <th>攻击类型</th>
                 <th>置信度</th>
                 <th>源IP</th>
+                <th>源port</th>
                 <th>目标IP</th>
+                <th>目标port</th>
+                <th>协议</th>
                 <th>时间</th>
             </tr>
             {% for attack in data.traffic_analysis.attacks %}
             <tr>
+                <td>{{ loop.index }}</td>
                 <td>{{ attack.type }}</td>
                 <td>{{ attack.confidence }}%</td>
                 <td>{{ attack.source_ip }}</td>
+                <td>{{ attack.source_port }}</td>
                 <td>{{ attack.target_ip }}</td>
+                <td>{{ attack.target_port }}</td>
+                <td>{{ attack.protocol }}</td>
                 <td>{{ attack.timestamp }}</td>
             </tr>
             {% endfor %}
@@ -288,6 +296,7 @@
         
         <table>
             <tr>
+                <th>序号</th>
                 <th>异常类型</th>
                 <th>异常值</th>
                 <th>阈值</th>
@@ -296,6 +305,7 @@
             </tr>
             {% for anomaly in data.anomaly_detection.anomalies %}
             <tr>
+                <td>{{ loop.index }}</td>
                 <td>{{ anomaly.description }}</td>
                 <td>{{ anomaly.value }}</td>
                 <td>{{ anomaly.threshold }}</td>

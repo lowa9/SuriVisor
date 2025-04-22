@@ -897,7 +897,10 @@ class SuriVisor:
                             "type": alert.get('signature', '未知攻击'),
                             "confidence": alert.get('confidence', 90),
                             "source_ip": alert.get('src_ip', '未知'),
+                            "source_port": alert.get('src_port', '未知'),
                             "target_ip": alert.get('dest_ip', '未知'),
+                            "target_port": alert.get('dest_port', '未知'),
+                            "protocol": alert.get('proto', '未知'),
                             "timestamp": alert.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                         })
                     

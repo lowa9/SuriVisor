@@ -3,10 +3,10 @@
 #############################################
 
 # 检测FTP登录失败
-alert tcp any any -> $HOME_NET 21 (msg:"FTP 登录失败"; flow:established,to_server; content:"USER "; nocase; pcre:"/^USER\s+[^\n]+\r?\n/"; flowbits:set,ftp.user; flowbits:noalert; sid:3000001; rev:1;)
-alert tcp $HOME_NET 21 -> any any (msg:"FTP 登录失败响应"; flow:established,from_server; flowbits:isset,ftp.user; content:"530 "; pcre:"/^530\s+.*(?:login|authentication|password)\s+(?:incorrect|failed)/i"; flowbits:set,ftp.failed_login; sid:3000002; rev:1;)
+#alert tcp any any -> $HOME_NET 21 (msg:"FTP 登录失败"; flow:established,to_server; content:"USER "; nocase; pcre:"/^USER\s+[^\n]+\r?\n/"; flowbits:set,ftp.user; flowbits:noalert; sid:3000001; rev:1;)
+#alert tcp $HOME_NET 21 -> any any (msg:"FTP 登录失败响应"; flow:established,from_server; flowbits:isset,ftp.user; content:"530 "; pcre:"/^530\s+.*(?:login|authentication|password)\s+(?:incorrect|failed)/i"; flowbits:set,ftp.failed_login; sid:3000002; rev:1;)
 
-alert tcp any any -> $HOME_NET 21 (msg:"FTP暴力破解攻击(优化版)"; flow:established,to_server;content:"USER "; nocase;pcre:"/USER\s[^\n]+\r\n/s";detection_filter:track by_src, count 3, seconds 60;metadata:service ftp;classtype:attempted-admin;sid:3000003;rev:4;)
+alert tcp any any -> $HOME_NET 21 (msg:"FTP暴力破解攻击"; flow:established,to_server;content:"USER "; nocase;pcre:"/USER\s[^\n]+\r\n/s";detection_filter:track by_src, count 3, seconds 60;metadata:service ftp;classtype:attempted-admin;sid:3000003;rev:4;)
 #############################################
 # TELNET 暴力破解检测规则 (修正版)
 #############################################
