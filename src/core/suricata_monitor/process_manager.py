@@ -281,6 +281,15 @@ class SuricataProcessManager:
             
             # 分析完成后处理结果
             try:
+                # 初始化数据包统计信息
+                result["total_packets"] = 0
+                result["reassembled_packets"] = 0
+                result["lost_packets"] = 0
+                result["total_bytes"] = 0
+                result["tcp_flows"] = 0
+                result["udp_flows"] = 0
+                result["analyzed_flows"] = 0
+
                 # 读取eve.json文件，只处理新增的行
                 with open(eve_json, 'r') as f:
                     # 跳过已有的行
@@ -316,6 +325,49 @@ class SuricataProcessManager:
                                     callback(alert_info)
                                     
                                 logger.info(f"检测到告警: {alert_info['signature']}")
+                            
+                            # 处理统计事件，提取数据包信息
+                            elif event.get('event_type') == 'stats':
+                                stats = event.get('stats', {})
+                                decoder = stats.get('decoder', {})
+                                flow = stats.get('flow', {})
+                                defrag = stats.get('defrag', {})
+                                
+                                # 提取总数据包数
+                                if 'pkts' in decoder:
+                                    result["total_packets"] = decoder['pkts']
+                                
+                                # 提取总字节数
+                                if 'bytes' in decoder:
+                                    result["total_bytes"] = decoder['bytes']
+
+                                # 提取所有的流量数
+                                if 'total' in flow:
+                                    result["analyzed_flows"] = flow['total']
+
+                                # 提取分析的tcp流量数
+                                if 'tcp' in flow:
+                                    result["tcp_flows"] = flow['tcp']
+
+                                # 提取分析的udp流量数
+                                if 'udp' in flow:
+                                    result["udp_flows"] = flow['udp']
+                                
+                                # 提取IPv4和IPv6重组数据包数
+                                ipv4_reassembled = defrag.get('ipv4', {}).get('reassembled', 0)
+                                ipv6_reassembled = defrag.get('ipv6', {}).get('reassembled', 0)
+                                result["reassembled_packets"] = ipv4_reassembled + ipv6_reassembled
+                                
+                                # 计算丢失的数据包数（简单估算：总数据包 - 重组数据包）
+                                # 注意：这是一个简化的计算，实际丢失数据包可能需要更复杂的逻辑
+                                fragments_ipv4 = defrag.get('ipv4', {}).get('fragments', 0)
+                                fragments_ipv6 = defrag.get('ipv6', {}).get('fragments', 0)
+                                total_fragments = fragments_ipv4 + fragments_ipv6
+                                
+                                if total_fragments > result["reassembled_packets"]:
+                                    result["lost_packets"] = total_fragments - result["reassembled_packets"]
+                                
+                                logger.info(f"提取到数据包统计信息: 总数据包={result['total_packets']}, 重组数据包={result['reassembled_packets']}, 丢失数据包={result['lost_packets']}")
                                 
                         except json.JSONDecodeError:
                             logger.warning(f"无法解析JSON行: {line}")
@@ -331,8 +383,38 @@ class SuricataProcessManager:
                 logger.error(f"Suricata分析失败: {stderr}")
                 return {"success": False, "error": stderr}
             
+            # 如果从eve.json中没有获取到数据包统计信息，尝试从suricata.log中获取
+            if result["total_packets"] == 0:
+                suricata_log = os.path.join(output_log_dir, "suricata.log")
+                if os.path.exists(suricata_log):
+                    try:
+                        with open(suricata_log, 'r') as f:
+                            for line in f:
+                                # 查找包含数据包统计信息的行
+                                if "pcap: read" in line and "packets" in line:
+                                    # 例如: [536457 - RX#01] 2025-04-21 23:07:45 Notice: pcap: read 1 file, 1577 packets, 223252 bytes
+                                    parts = line.split()
+                                    for i, part in enumerate(parts):
+                                        if part == "packets,":
+                                            result["total_packets"] = int(parts[i-1])
+                                            logger.info(f"从suricata.log中提取到总数据包数: {result['total_packets']}")
+                                            break
+                    except Exception as e:
+                        logger.warning(f"从suricata.log提取数据包统计信息时出错: {e}")
+            
             logger.info("PCAP文件分析完成")
             result["log_file"] = eve_json
+            
+            # 确保数据包统计信息存在于结果中
+            if "total_packets" not in result or result["total_packets"] == 0:
+                # 如果无法从日志中获取，尝试从pcap文件名中提取（如果文件名中包含数据包数量信息）
+                logger.warning("无法从日志中获取数据包统计信息，使用默认值")
+            
+            # 确保所有必要的字段都存在
+            if "reassembled_packets" not in result:
+                result["reassembled_packets"] = 0
+            if "lost_packets" not in result:
+                result["lost_packets"] = 0
             
             return result
             

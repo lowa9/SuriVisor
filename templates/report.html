@@ -205,19 +205,31 @@
                     <div class="stat-value">{{ data.packet_reassembly.total_packets }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">重组数据包数</div>
+                    <div class="stat-label">总字节数</div>
+                    <div class="stat-value">{{ data.packet_reassembly.total_bytes }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">重组IP分片包数</div>
                     <div class="stat-value">{{ data.packet_reassembly.reassembled_packets }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">丢失数据包数</div>
+                    <div class="stat-label">丢失IP分片包数</div>
                     <div class="stat-value">{{ data.packet_reassembly.lost_packets }}</div>
                 </div>
                 {% endif %}
                 
                 {% if data.traffic_analysis %}
                 <div class="stat-card">
-                    <div class="stat-label">分析流数量</div>
+                    <div class="stat-label">分析流总数量</div>
                     <div class="stat-value">{{ data.traffic_analysis.analyzed_flows }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">分析tcp流数量</div>
+                    <div class="stat-value">{{ data.traffic_analysis.tcp_flows }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">分析udp流数量</div>
+                    <div class="stat-value">{{ data.traffic_analysis.udp_flows }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">检测到的攻击</div>
@@ -234,66 +246,10 @@
             </div>
         </div>
         
-        {% if data.packet_reassembly %}
-        <h2>数据包重组分析</h2>
-        <table>
-            <tr>
-                <th>指标</th>
-                <th>值</th>
-            </tr>
-            <tr>
-                <td>总数据包数</td>
-                <td>{{ data.packet_reassembly.total_packets }}</td>
-            </tr>
-            <tr>
-                <td>重组数据包数</td>
-                <td>{{ data.packet_reassembly.reassembled_packets }}</td>
-            </tr>
-            <tr>
-                <td>丢失数据包数</td>
-                <td>{{ data.packet_reassembly.lost_packets }}</td>
-            </tr>
-            <tr>
-                <td>乱序数据包数</td>
-                <td>{{ data.packet_reassembly.out_of_order_packets }}</td>
-            </tr>
-            <tr>
-                <td>重组成功率</td>
-                <td>{{ data.packet_reassembly.reassembly_success_rate }}%</td>
-            </tr>
-            <tr>
-                <td>平均重组时间</td>
-                <td>{{ data.packet_reassembly.avg_reassembly_time }} ms</td>
-            </tr>
-        </table>
-        {% endif %}
+        <!-- 数据包重组分析部分已移至系统状态摘要中 -->
         
         {% if data.traffic_analysis %}
         <h2>流量分析结果</h2>
-        
-        <h3>流量统计</h3>
-        <table>
-            <tr>
-                <th>指标</th>
-                <th>值</th>
-            </tr>
-            <tr>
-                <td>分析流数量</td>
-                <td>{{ data.traffic_analysis.analyzed_flows }}</td>
-            </tr>
-            <tr>
-                <td>总流量</td>
-                <td>{{ data.traffic_analysis.total_traffic }} MB</td>
-            </tr>
-            <tr>
-                <td>平均流大小</td>
-                <td>{{ data.traffic_analysis.avg_flow_size }} KB</td>
-            </tr>
-            <tr>
-                <td>最大流大小</td>
-                <td>{{ data.traffic_analysis.max_flow_size }} KB</td>
-            </tr>
-        </table>
         
         {% if data.traffic_analysis.detected_attacks > 0 %}
         <h3>检测到的攻击</h3>

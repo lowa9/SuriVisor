@@ -152,13 +152,15 @@ class ReportGenerator:
             str: 生成的报告文件路径
         """
         # 添加报告元数据
+        # 使用传入的数据和元数据
         report_data = {
-            "metadata": {
+            "metadata": options.get("metadata", {
                 "generated_at": datetime.now().isoformat(),
                 "generator": "SuriVisor Report Generator",
                 "version": "1.0"
-            },
-            "data": data
+            }),
+            "data": data,
+            "options": options
         }
         
         # 写入JSON文件
@@ -187,13 +189,13 @@ class ReportGenerator:
             # 加载模板
             template = self.jinja_env.get_template(template_name)
             
-            # 添加报告元数据
+            # 使用传入的数据和元数据
             report_data = {
-                "metadata": {
+                "metadata": options.get("metadata", {
                     "generated_at": datetime.now().isoformat(),
                     "generator": "SuriVisor Report Generator",
                     "version": "1.0"
-                },
+                }),
                 "data": data,
                 "options": options
             }

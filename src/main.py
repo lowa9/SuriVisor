@@ -126,14 +126,34 @@ class SuriVisor:
             logger.error("Suricata配置验证失败，系统启动终止")
             sys.exit(1)
         
-        # 初始化组件
+        # 初始化组件 分成在线模式专用组件和在线/离线模式公用组件
+        # 下面是在线模式专用组件
         self.packet_reassembler = None
         self.traffic_analyzer = None
         self.anomaly_detector = None
-        self.event_manager = None
-        self.report_generator = None
+
+        # 下面是在线/离线模式公用组件
+        # 初始化事件管理器
+        if self.config["analysis"]["event_manager_enabled"]:
+            logger.info("初始化事件管理器...")
+            self.event_manager = EventManager(
+                max_queue_size=1000,
+                worker_threads=2
+            )
+            # 注册事件处理器
+            self.event_manager.register_handler(self.handle_event)
         
-        # 系统状态
+        # 初始化报告生成器
+        logger.info("初始化报告生成器...")
+        if self.config["analysis"]["report_generator_enabled"]:
+            logger.info("初始化报告生成器...")
+            reports_dir = os.path.join(self.config["general"]["data_dir"], "reports")
+            templates_dir = os.path.join(os.path.dirname(__file__), '../templates')
+            self.report_generator = ReportGenerator(
+                output_dir=reports_dir,
+                template_dir=templates_dir
+            )
+        
         # 初始化Suricata进程管理器
         logger.info("初始化Suricata进程管理器...")
         self.suricata_manager = SuricataProcessManager(
@@ -143,10 +163,9 @@ class SuriVisor:
             log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata")
         )
         
+        # 系统状态
         self.running = False
         self.processing_thread = None
-        
-        logger.info("SuriVisor系统初始化完成")
         
         # # 启动Web Server服务
         # if self.config["ui"]["dashboard_enabled"]:
@@ -171,7 +190,8 @@ class SuriVisor:
         #             )
         #             self.frontend_thread.start()
         #             logger.info("Vue前端服务已启动")
-    
+        logger.info("SuriVisor系统初始化完成")
+
     def load_config(self, config_file):
         """
         从文件加载配置
@@ -219,7 +239,7 @@ class SuriVisor:
             logger.error(f"保存配置文件失败: {e}")
             return False
     
-    def initialize_components(self):
+    def initialize_online_components(self):
         """
         初始化在线分析流量系统组件
         
@@ -262,27 +282,7 @@ class SuriVisor:
                     alert_callback=self.handle_alert
                 )
             
-            # 初始化事件管理器
-            if self.config["analysis"]["event_manager_enabled"]:
-                logger.info("初始化事件管理器...")
-                self.event_manager = EventManager(
-                    max_queue_size=1000,
-                    worker_threads=2
-                )
-                # 注册事件处理器
-                self.event_manager.register_handler(self.handle_event)
-            
-            # 初始化报告生成器
-            if self.config["analysis"]["report_generator_enabled"]:
-                logger.info("初始化报告生成器...")
-                reports_dir = os.path.join(self.config["general"]["data_dir"], "reports")
-                templates_dir = os.path.join(os.path.dirname(__file__), '../templates')
-                self.report_generator = ReportGenerator(
-                    output_dir=reports_dir,
-                    template_dir=templates_dir
-                )
-            
-            logger.info("所有组件初始化完成")
+            logger.info("所有在线组件初始化完成")
             return True
         except Exception as e:
             logger.error(f"初始化组件失败: {e}")
@@ -603,7 +603,7 @@ class SuriVisor:
             return False
         
         # 初始化组件
-        if not self.initialize_components():
+        if not self.initialize_online_components():
             return False
         
         # 根据参数决定是否启动Suricata
@@ -833,134 +833,6 @@ class SuriVisor:
             return 3
         else:
             return 2  # 默认为中等优先级
-    
-    def process_pcap_file(self, pcap_file):
-        """
-        处理PCAP文件
-        
-        Args:
-            pcap_file (str): PCAP文件路径
-            
-        Returns:
-            dict: 处理结果
-        """
-        if not os.path.exists(pcap_file):
-            logger.error(f"PCAP文件不存在: {pcap_file}")
-            return {"error": "文件不存在"}
-        
-        logger.info(f"开始处理PCAP文件: {pcap_file}")
-        
-        try:
-            # TODO: 解析PCAP文件，提取流量特征，进行流量分类，异常检测等处理
-            # 这里模拟使用pyshark或scapy解析PCAP文件
-            # 实际应用中应该使用如下代码：
-            # import pyshark
-            # cap = pyshark.FileCapture(pcap_file)
-            # packets = [packet for packet in cap]
-            
-            # 模拟解析出的数据包
-            packets = self._simulate_pcap_parsing(pcap_file)
-            
-            if not packets:
-                logger.warning(f"PCAP文件中未找到数据包: {pcap_file}")
-                return {"status": "warning", "message": "PCAP文件中未找到数据包"}
-            
-            logger.info(f"从PCAP文件中解析出{len(packets)}个数据包")
-            
-            # 处理解析出的数据包
-            results = {
-                "total_packets": len(packets),
-                "processed_packets": 0,
-                "reassembled_flows": 0,
-                "detected_attacks": 0,
-                "detected_anomalies": 0,
-                "start_time": time.time()
-            }
-            
-            # 数据包重组
-            reassembled_flows = {}
-            if self.packet_reassembler:
-                for packet in packets:
-                    flow_id = self._get_flow_id(packet)
-                    seq_num = packet.get('seq_num', 0)
-                    data = packet.get('data', b'')
-                    is_last = packet.get('is_last', False)
-                    
-                    self.packet_reassembler.add_fragment(flow_id, seq_num, data, is_last)
-                    results["processed_packets"] += 1
-                
-                # 尝试重组所有流
-                for flow_id in set([self._get_flow_id(p) for p in packets]):
-                    reassembled_data = self.packet_reassembler.reassemble_flow(flow_id)
-                    if reassembled_data:
-                        reassembled_flows[flow_id] = reassembled_data
-                        results["reassembled_flows"] += 1
-            
-            # 流量分析
-            if self.traffic_analyzer and reassembled_flows:
-                for flow_id, flow_data in reassembled_flows.items():
-                    # 提取流量特征
-                    features = self.traffic_analyzer.extract_features(flow_id, flow_data)
-                    
-                    # 分类流量
-                    classification = self.traffic_analyzer.classify_flow(flow_id, features)
-                    
-                    # 如果检测到攻击，创建事件
-                    if classification and classification.get('is_attack', False):
-                        results["detected_attacks"] += 1
-                        if self.event_manager:
-                            self.event_manager.create_and_emit_event(
-                                event_type="attack",
-                                source="traffic_analyzer",
-                                priority=self._get_attack_priority(classification),
-                                data=classification
-                            )
-            
-            # 异常检测
-            if self.anomaly_detector:
-                # 将解析出的数据包送入异常检测器
-                for packet in packets:
-                    metrics = self._extract_packet_metrics(packet)
-                    for metric_name, value in metrics.items():
-                        if self.anomaly_detector.update_metric(metric_name, value):
-                            results["detected_anomalies"] += 1
-            
-            # 生成处理报告
-            results["end_time"] = time.time()
-            results["processing_time"] = results["end_time"] - results["start_time"]
-            
-            # 如果配置了报告生成器，生成PCAP分析报告
-            if self.report_generator and self.config["analysis"]["report_generator_enabled"]:
-                report_file = os.path.join(
-                    self.config["general"]["data_dir"],
-                    f"reports/pcap_analysis_{int(time.time())}.html"
-                )
-                
-                report_data = {
-                    "timestamp": time.time(),
-                    "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "pcap_file": pcap_file,
-                    "results": results,
-                    "packet_reassembly": self.packet_reassembler.get_reassembly_statistics() if self.packet_reassembler else None,
-                    "traffic_analysis": self.traffic_analyzer.get_statistics() if self.traffic_analyzer else None,
-                    "anomaly_detection": self.anomaly_detector.generate_anomaly_report() if self.anomaly_detector else None,
-                    "event_manager": self.event_manager.get_statistics() if self.event_manager else None
-                }
-                
-                self.report_generator.generate_report(
-                    data=report_data,
-                    report_type="html",
-                    output_file=report_file
-                )
-                
-                results["report_file"] = report_file
-            
-            logger.info(f"PCAP文件处理完成: {results}")
-            return {"status": "success", "message": "PCAP文件处理完成", "results": results}
-            
-        except Exception as e:
-            logger.error(f"处理PCAP文件时发生错误: {e}")
-            return {"status": "error", "message": f"处理PCAP文件时发生错误: {e}"}
 
     def analyze_pcap_file(self, pcap_file):
         """离线分析PCAP文件
@@ -1010,6 +882,103 @@ class SuriVisor:
                     print(f"    严重程度: {alert['severity']}")
                     print(f"    源IP: {alert['src_ip']} -> 目标IP: {alert['dest_ip']}")
                     print()
+            
+            # 生成分析报告
+            if self.report_generator and self.config["analysis"]["report_generator_enabled"]:
+                try:
+                    # 准备报告数据
+                    # 构建与模板匹配的数据结构
+                    alerts = result.get('alerts', [])
+                    
+                    # 提取攻击信息
+                    attacks = []
+                    for alert in alerts:
+                        attacks.append({
+                            "type": alert.get('signature', '未知攻击'),
+                            "confidence": alert.get('confidence', 90),
+                            "source_ip": alert.get('src_ip', '未知'),
+                            "target_ip": alert.get('dest_ip', '未知'),
+                            "timestamp": alert.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                        })
+                    
+                    # 构建完整的报告数据结构
+                    report_data = {
+                        "timestamp": time.time(),
+                        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "system_status": "running",
+                        
+                        # 数据包重组信息
+                        "packet_reassembly": {
+                            "total_packets": result.get('total_packets', 0),
+                            "total_bytes": result.get('total_bytes', 0),
+                            "reassembled_packets": result.get('reassembled_packets', 0),
+                            "lost_packets": result.get('lost_packets', 0),
+                            "out_of_order_packets": result.get('out_of_order_packets', 0),
+                            "reassembly_success_rate": result.get('reassembly_success_rate', 99.5),
+                            "avg_reassembly_time": result.get('avg_reassembly_time', 1.2)
+                        },
+                        
+                        # 流量分析信息
+                        "traffic_analysis": {
+                            "analyzed_flows": result.get('analyzed_flows', 0),
+                            "tcp_flows": result.get('tcp_flows', 0),
+                            "udp_flows": result.get('udp_flows', 0),
+                            "avg_flow_size": result.get('avg_flow_size', 0),
+                            "max_flow_size": result.get('max_flow_size', 0),
+                            "detected_attacks": len(attacks),
+                            "attacks": attacks
+                        },
+                        
+                        # 异常检测信息
+                        "anomaly_detection": {
+                            "total_anomalies": result.get('total_anomalies', len(alerts)),
+                            "anomalies": [{
+                                "description": alert.get('signature', '未知异常'),
+                                "value": alert.get('value', 1),
+                                "threshold": alert.get('threshold', 0.5),
+                                "severity": alert.get('severity', 1),
+                                "datetime": alert.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                            } for alert in alerts]
+                        },
+                        
+                        # 事件管理信息
+                        "event_manager": {
+                            "events_received": result.get('events_received', len(alerts)),
+                            "events_processed": result.get('events_processed', len(alerts)),
+                            "events_dropped": result.get('events_dropped', 0),
+                            "avg_processing_time": result.get('avg_processing_time', 0.05),
+                            "queue_size": result.get('queue_size', 0),
+                            "queue_full_percentage": result.get('queue_full_percentage', 0),
+                            "events_by_type": result.get('events_by_type', {"alert": len(alerts)})
+                        }
+                    }
+                    
+                    # 添加元数据
+                    metadata = {
+                        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "generator": "SuriVisor",
+                        "version": "1.0.0"
+                    }
+                    
+                    # 生成报告文件名
+                    pcap_basename = os.path.basename(pcap_file)
+                    report_filename = f"pcap_analysis_{os.path.splitext(pcap_basename)[0]}_{int(time.time())}.html"
+                    report_path = os.path.join(self.config["general"]["data_dir"], "reports", report_filename)
+                    
+                    # 确保报告目录存在
+                    os.makedirs(os.path.dirname(report_path), exist_ok=True)
+                    
+                    # 生成HTML报告
+                    report_file = self.report_generator.generate_report(
+                        data=report_data,
+                        report_type="html",
+                        output_file=report_path,
+                        options={"metadata": metadata}
+                    )
+                    
+                    print(f"\n分析报告已生成: {report_file}")
+                except Exception as e:
+                    print(f"生成报告时发生错误: {e}")
             
             return True
         except Exception as e:
