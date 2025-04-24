@@ -7,6 +7,9 @@ services:
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
     volumes:
       - ./etc/elasticsearch:/usr/share/elasticsearch/config
       - es_data:/usr/share/elasticsearch/data
