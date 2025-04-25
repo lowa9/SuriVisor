@@ -33,8 +33,8 @@ logger = logging.getLogger("WebServer")
 
 # 创建Flask应用
 app = Flask(__name__, 
-            static_folder=os.path.join(os.path.dirname(__file__), '../static'),
-            template_folder=os.path.join(os.path.dirname(__file__), '../templates'))
+            static_folder=os.path.abspath(os.path.join(os.path.dirname(__file__), '../static')),
+            template_folder=os.path.abspath(os.path.join(os.path.dirname(__file__), "../templates")))
 
 # 配置上传文件目录
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), '../data/pcap')
@@ -196,7 +196,8 @@ def analyze_pcap():
 # 路由：获取报告文件
 @app.route('/reports/<path:filename>')
 def get_report(filename):
-    reports_dir = os.path.join(os.path.dirname(__file__), '../data/reports')
+    reports_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../data/reports'))
+    logger.info(f"报告目录: {reports_dir}")
     return send_from_directory(reports_dir, filename)
 
 # API路由：获取系统报告

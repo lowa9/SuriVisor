@@ -3,6 +3,7 @@ data/logs/suricata/fast.log
 data/logs/suricata/suricata.log
 data/logs/suricata/stats.log
 data/logs/surivisor.log
+data/logs/suricata/log.pcap.*
 data/reports
 src/ui/dashboard/node_modules
 docs
