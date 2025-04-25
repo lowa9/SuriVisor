@@ -219,7 +219,7 @@ outputs:
             # set this value to one and only one from {both, request, response}
             # to dump all HTTP headers for every HTTP request and/or response
             # dump-all-headers: none
-        - dns:
+        #- dns:
             # This configuration uses the new DNS logging format,
             # the old configuration is still available:
             # https://docs.suricata.io/en/latest/output/eve/eve-json-output.html#dns-v1-format
@@ -396,7 +396,7 @@ outputs:
   # - encrypted streams after the key exchange
   #
   - pcap-log:
-      enabled: no
+      enabled: yes
       filename: log.pcap
 
       # File size limit.  Can be specified in kb, mb, gb.  Just a number
