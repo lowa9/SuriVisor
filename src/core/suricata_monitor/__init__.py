@@ -7,6 +7,5 @@ Suricata监控模块
 """
 
 from .process_manager import SuricataProcessManager
-from .log_monitor import SuricataLogMonitor
 
 __all__ = ['SuricataProcessManager', 'SuricataLogMonitor']

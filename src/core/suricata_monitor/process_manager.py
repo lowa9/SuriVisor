@@ -14,7 +14,8 @@ import signal
 import logging
 import subprocess
 import json
-from typing import Optional, Dict, Any
+import uuid
+from typing import Optional, Dict, Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ class SuricataProcessManager:
                  config_path: str = '/etc/suricata/suricata.yaml',
                  rule_dir: str = '/etc/suricata/rules',
                  log_dir: str = '/var/log/suricata',
-                 pid_file: str = '/var/run/suricata.pid'):
+                 pid_file: str = '/var/run/suricata.pid',
+                 session_id_file: str = None):
         """初始化Suricata进程管理器
         
         Args:
@@ -42,12 +44,53 @@ class SuricataProcessManager:
         self.log_dir = log_dir
         self.pid_file = pid_file
         
+        # 会话ID文件路径，用于存储全局ID供Logstash读取
+        self.session_id_file = session_id_file or os.path.join(log_dir, 'session_id.conf')
+        
+        # 当前会话ID
+        self.session_id = None
+        
         # Suricata进程
         self.process: Optional[subprocess.Popen] = None
         self.running = False
         
         # 确保日志目录存在
         os.makedirs(log_dir, exist_ok=True)
+    
+    def generate_session_id(self) -> str:
+        """生成唯一的会话ID
+        
+        Returns:
+            str: 生成的会话ID
+        """
+        return str(uuid.uuid4())
+    
+    def write_session_id_file(self, session_id: str) -> bool:
+        """将会话ID写入配置文件，供Logstash读取
+        
+        Args:
+            session_id: 会话ID
+            
+        Returns:
+            bool: 写入是否成功
+        """
+        try:
+            # 创建一个简单的配置文件，包含会话ID
+            with open(self.session_id_file, 'w') as f:
+                f.write(f"SURICATA_SESSION_ID={session_id}\n")
+            logger.info(f'会话ID已写入配置文件: {self.session_id_file}')
+            return True
+        except Exception as e:
+            logger.error(f'写入会话ID文件失败: {e}')
+            return False
+    
+    def get_current_session_id(self) -> Union[str, None]:
+        """获取当前会话ID
+        
+        Returns:
+            Union[str, None]: 当前会话ID，如果没有则返回None
+        """
+        return self.session_id
     
     def start(self, interface: str = 'ens33') -> bool:
         """启动Suricata进程
@@ -87,6 +130,13 @@ class SuricataProcessManager:
                 except OSError as e:
                     logger.error(f'删除PID文件失败: {e}')
                     return False
+            # 生成新的会话ID
+            self.session_id = self.generate_session_id()
+            
+            # 将会话ID写入配置文件
+            if not self.write_session_id_file(self.session_id):
+                logger.warning('无法写入会话ID文件，但将继续启动Suricata')
+            
             # 构建命令行参数
             cmd = [
                 self.binary_path,
@@ -94,7 +144,7 @@ class SuricataProcessManager:
                 '--pidfile', self.pid_file,
                 '-i', interface,
                 '--set', f'default-rule-path={self.rule_dir}',
-                '--set', f'default-log-dir={self.log_dir}'
+                '-l', self.log_dir
             ]
             
             # 启动进程
@@ -112,7 +162,7 @@ class SuricataProcessManager:
             # 检查进程状态
             if self.process.poll() is None:
                 self.running = True
-                logger.info('Suricata进程启动成功')
+                logger.info(f'Suricata进程启动成功，会话ID: {self.session_id}')
                 return True
             else:
                 error = self.process.stderr.read()
@@ -150,6 +200,16 @@ class SuricataProcessManager:
             # 删除PID文件
             if os.path.exists(self.pid_file):
                 os.remove(self.pid_file)
+                
+            # 清除会话ID
+            self.session_id = None
+            
+            # 删除会话ID文件
+            if os.path.exists(self.session_id_file):
+                try:
+                    os.remove(self.session_id_file)
+                except OSError as e:
+                    logger.warning(f'删除会话ID文件失败: {e}')
             
             logger.info('Suricata进程已停止')
             return True
