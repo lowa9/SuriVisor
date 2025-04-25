@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuriVisor - 基于Suricata的威胁分析系统</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+        }
+        h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            font-size: 1.2em;
+            margin-top: 10px;
+            color: #ecf0f1;
+        }
+        .card {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+        .card-title {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .btn {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            text-decoration: none;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .btn-danger {
+            background-color: #e74c3c;
+        }
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+        .btn-success {
+            background-color: #2ecc71;
+        }
+        .btn-success:hover {
+            background-color: #27ae60;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .status-running {
+            background-color: #d5f5e3;
+            border: 1px solid #2ecc71;
+        }
+        .status-stopped {
+            background-color: #fadbd8;
+            border: 1px solid #e74c3c;
+        }
+        .file-upload {
+            margin-bottom: 20px;
+        }
+        .file-upload input[type="file"] {
+            display: none;
+        }
+        .file-upload label {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .file-upload label:hover {
+            background-color: #2980b9;
+        }
+        .file-name {
+            margin-left: 10px;
+        }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .alert-success {
+            background-color: #d5f5e3;
+            border: 1px solid #2ecc71;
+            color: #27ae60;
+        }
+        .alert-danger {
+            background-color: #fadbd8;
+            border: 1px solid #e74c3c;
+            color: #c0392b;
+        }
+        .alert-info {
+            background-color: #d6eaf8;
+            border: 1px solid #3498db;
+            color: #2980b9;
+        }
+        .hidden {
+            display: none;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .report-link {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .severity-high {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .severity-medium {
+            color: #f39c12;
+            font-weight: bold;
+        }
+        .severity-low {
+            color: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>SuriVisor</h1>
+            <div class="subtitle">基于Suricata的威胁分析系统</div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="status-container" class="status status-stopped">
+            系统状态: <span id="status-text">正在加载...</span>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">在线分析</h2>
+            <p>启动实时流量分析，监控网络流量并检测潜在威胁。</p>
+            <button id="start-online" class="btn btn-success">启动在线分析</button>
+            <button id="stop-online" class="btn btn-danger">停止在线分析</button>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">离线分析</h2>
+            <p>上传PCAP文件进行离线分析，检测文件中的潜在威胁。</p>
+            <div class="file-upload">
+                <label for="pcap-file">选择PCAP文件</label>
+                <input type="file" id="pcap-file" accept=".pcap,.pcapng">
+                <span id="file-name" class="file-name"></span>
+            </div>
+            <button id="upload-pcap" class="btn">上传文件</button>
+            <button id="analyze-pcap" class="btn" disabled>分析文件</button>
+            <div id="analysis-status" class="hidden">
+                <div class="loader"></div>
+                <span>正在分析，请稍候...</span>
+            </div>
+            <div id="report-link" class="report-link hidden">
+                <a href="#" id="view-report" class="btn" target="_blank">查看分析报告</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">系统报告</h2>
+            <p>生成系统状态和分析结果的综合报告。</p>
+            <button id="generate-report" class="btn">生成系统报告</button>
+            <div id="system-report-link" class="report-link hidden">
+                <a href="#" id="view-system-report" class="btn" target="_blank">查看系统报告</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">最近告警</h2>
+            <div id="alerts-container">
+                <p>加载告警信息...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 获取系统状态
+            fetchStatus();
+            
+            // 获取告警列表
+            fetchAlerts();
+            
+            // 文件选择事件
+            document.getElementById('pcap-file').addEventListener('change', function(e) {
+                const fileName = e.target.files[0] ? e.target.files[0].name : '';
+                document.getElementById('file-name').textContent = fileName;
+                document.getElementById('upload-pcap').disabled = !fileName;
+            });
+            
+            // 上传PCAP文件
+            document.getElementById('upload-pcap').addEventListener('click', uploadPcap);
+            
+            // 分析PCAP文件
+            document.getElementById('analyze-pcap').addEventListener('click', analyzePcap);
+            
+            // 启动在线分析
+            document.getElementById('start-online').addEventListener('click', startOnlineAnalysis);
+            
+            // 停止在线分析
+            document.getElementById('stop-online').addEventListener('click', stopOnlineAnalysis);
+            
+            // 生成系统报告
+            document.getElementById('generate-report').addEventListener('click', generateSystemReport);
+        });
+        
+        // 获取系统状态
+        function fetchStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusContainer = document.getElementById('status-container');
+                    const statusText = document.getElementById('status-text');
+                    
+                    if (data.running) {
+                        statusContainer.className = 'status status-running';
+                        statusText.textContent = '运行中';
+                        document.getElementById('start-online').disabled = true;
+                        document.getElementById('stop-online').disabled = false;
+                    } else {
+                        statusContainer.className = 'status status-stopped';
+                        statusText.textContent = '已停止';
+                        document.getElementById('start-online').disabled = false;
+                        document.getElementById('stop-online').disabled = true;
+                    }
+                })
+                .catch(error => {
+                    console.error('获取状态失败:', error);
+                    showAlert('获取系统状态失败', 'danger');
+                });
+        }
+        
+        // 获取告警列表
+        function fetchAlerts() {
+            fetch('/api/alerts')
+                .then(response => response.json())
+                .then(data => {
+                    const alertsContainer = document.getElementById('alerts-container');
+                    
+                    if (data.success && data.alerts && data.alerts.length > 0) {
+                        let html = '<table>';
+                        html += '<tr><th>时间</th><th>描述</th><th>严重程度</th><th>源IP</th><th>目标IP</th></tr>';
+                        
+                        // 只显示最近10条告警
+                        const alerts = data.alerts.slice(0, 10);
+                        
+                        alerts.forEach(alert => {
+                            const timestamp = alert.timestamp ? new Date(alert.timestamp * 1000).toLocaleString() : '未知';
+                            const description = alert.description || (alert.alert ? alert.alert.signature : '未知告警');
+                            const severity = alert.severity || (alert.alert ? alert.alert.severity : 'medium');
+                            const srcIp = alert.src_ip || '未知';
+                            const destIp = alert.dest_ip || '未知';
+                            
+                            let severityClass = '';
+                            if (severity === 'high' || severity === 1) {
+                                severityClass = 'severity-high';
+                            } else if (severity === 'medium' || severity === 2) {
+                                severityClass = 'severity-medium';
+                            } else {
+                                severityClass = 'severity-low';
+                            }
+                            
+                            html += `<tr>
+                                <td>${timestamp}</td>
+                                <td>${description}</td>
+                                <td class="${severityClass}">${severity}</td>
+                                <td>${srcIp}</td>
+                                <td>${destIp}</td>
+                            </tr>`;
+                        });
+                        
+                        html += '</table>';
+                        alertsContainer.innerHTML = html;
+                    } else {
+                        alertsContainer.innerHTML = '<p>暂无告警信息</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('获取告警失败:', error);
+                    document.getElementById('alerts-container').innerHTML = '<p>获取告警信息失败</p>';
+                });
+        }
+        
+        // 上传PCAP文件
+        function uploadPcap() {
+            const fileInput = document.getElementById('pcap-file');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showAlert('请选择PCAP文件', 'danger');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            fetch('/api/offline/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('文件上传成功', 'success');
+                    // 存储文件路径用于后续分析
+                    document.getElementById('analyze-pcap').dataset.filePath = data.file_path;
+                    document.getElementById('analyze-pcap').disabled = false;
+                } else {
+                    showAlert(data.message || '上传失败', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('上传文件失败:', error);
+                showAlert('上传文件失败', 'danger');
+            });
+        }
+        
+        // 分析PCAP文件
+        function analyzePcap() {
+            const filePath = document.getElementById('analyze-pcap').dataset.filePath;
+            
+            if (!filePath) {
+                showAlert('请先上传PCAP文件', 'danger');
+                return;
+            }
+            
+            // 显示分析状态
+            document.getElementById('analysis-status').classList.remove('hidden');
+            document.getElementById('analyze-pcap').disabled = true;
+            document.getElementById('upload-pcap').disabled = true;
+            document.getElementById('report-link').classList.add('hidden');
+            
+            fetch('/api/offline/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ file_path: filePath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 隐藏分析状态
+                document.getElementById('analysis-status').classList.add('hidden');
+                document.getElementById('upload-pcap').disabled = false;
+                
+                if (data.success) {
+                    showAlert('PCAP文件分析完成', 'success');
+                    
+                    // 如果有报告链接，显示查看报告按钮
+                    if (data.report_url) {
+                        document.getElementById('view-report').href = data.report_url;
+                        document.getElementById('report-link').classList.remove('hidden');
+                    }
+                } else {
+                    showAlert(data.message || '分析失败', 'danger');
+                    document.getElementById('analyze-pcap').disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('分析文件失败:', error);
+                document.getElementById('analysis-status').classList.add('hidden');
+                document.getElementById('analyze-pcap').disabled = false;
+                document.getElementById('upload-pcap').disabled = false;
+                showAlert('分析文件失败', 'danger');
+            });
+        }
+        
+        // 启动在线分析
+        function startOnlineAnalysis() {
+            fetch('/api/online/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ start_suricata: true })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('在线分析已启动', 'success');
+                    fetchStatus(); // 刷新状态
+                } else {
+                    showAlert(data.message || '启动失败', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('启动在线分析失败:', error);
+                showAlert('启动在线分析失败', 'danger');
+            });
+        }
+        
+        // 停止在线分析
+        function stopOnlineAnalysis() {
+            fetch('/api/online/stop', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('在线分析已停止', 'success');
+                    fetchStatus(); // 刷新状态
+                } else {
+                    showAlert(data.message || '停止失败', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('停止在线分析失败:', error);
+                showAlert('停止在线分析失败', 'danger');
+            });
+        }
+        
+        // 生成系统报告
+        function generateSystemReport() {
+            fetch('/api/reports/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ report_type: 'html' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('系统报告生成成功', 'success');
+                    
+                    // 如果有报告链接，显示查看报告按钮
+                    if (data.report_url) {
+                        document.getElementById('view-system-report').href = data.report_url;
+                        document.getElementById('system-report-link').classList.remove('hidden');
+                    }
+                } else {
+                    showAlert(data.message || '生成报告失败', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('生成系统报告失败:', error);
+                showAlert('生成系统报告失败', 'danger');
+            });
+        }
+        
+        // 显示提示信息
+        function showAlert(message, type) {
+            // 创建提示元素
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            
+            // 添加到页面
+            const container = document.querySelector('.container');
+            container.insertBefore(alertDiv, container.firstChild);
+            
+            // 3秒后自动消失
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

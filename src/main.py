@@ -4,1191 +4,267 @@
 """
 SuriVisor - 基于Suricata的威胁分析系统
 
-该文件是系统的主入口，负责初始化各个组件并协调它们之间的交互。
+该文件是系统的Web应用入口，提供基于Flask的Web界面，用于在线和离线分析。
 """
 
 import os
-import glob
 import sys
+import json
 import time
 import logging
-import argparse
-import json
-import threading
-import yaml
 from datetime import datetime
+from flask import Flask, request, jsonify, render_template, send_from_directory
+from werkzeug.utils import secure_filename
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# 导入核心模块
-from src.core.packet_reassembly.packet_reassembler import PacketReassembler
-from src.core.traffic_analysis.traffic_analyzer import TrafficAnalyzer
-from src.core.anomaly_detection.anomaly_detector import AnomalyDetector
-from src.core.event_manager.event_manager import EventManager, Event
-from src.core.report_generator.report_generator import ReportGenerator
-from src.core.suricata_monitor.process_manager import SuricataProcessManager
-from src.core.suricata_monitor.log_monitor import SuricataLogMonitor
+# 导入SuriVisor类
+from src.SuriVisor import SuriVisor
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                    handlers=[
-                       logging.FileHandler(os.path.join(os.path.dirname(__file__), '../data/logs/surivisor.log')),
+                       logging.FileHandler(os.path.join(os.path.dirname(__file__), '../data/logs/web_server.log')),
                        logging.StreamHandler()
                    ])
-logger = logging.getLogger("SuriVisor")
+logger = logging.getLogger("WebServer")
 
+# 创建Flask应用
+app = Flask(__name__, 
+            static_folder=os.path.join(os.path.dirname(__file__), '../static'),
+            template_folder=os.path.join(os.path.dirname(__file__), '../templates'))
 
-class SuriVisor:
-    """
-    SuriVisor系统主类
-    
-    负责初始化各个组件并协调它们之间的交互。
-    """
-    
-    def validate_suricata_config(self):
-        """验证Suricata配置文件"""
-        try:
-            with open(self.config['suricata']['config_path'], 'r') as f:
-                suricata_config = yaml.safe_load(f)
-            
-            # 验证必要的端口配置
-            if 'vars' not in suricata_config or 'port-groups' not in suricata_config['vars']:
-                raise ValueError("Suricata配置文件缺少端口组配置")
-            
-            port_groups = suricata_config['vars']['port-groups']
-            required_ports = ['HTTP_PORTS', 'SSH_PORTS', 'DNS_PORTS', 'MODBUS_PORTS']
-            
-            for port in required_ports:
-                if port not in port_groups:
-                    logger.warning(f"Suricata配置缺少{port}配置")
-            
-            logger.info("Suricata配置验证完成")
-            return True
-            
-        except Exception as e:
-            logger.error(f"验证Suricata配置文件失败: {str(e)}")
-            return False
+# 配置上传文件目录
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), '../data/pcap')
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-    def __init__(self, config_file=None):
-        """
-        初始化SuriVisor系统
-        
-        Args:
-            config_file (str): 配置文件路径
-        """
-        # 默认配置
-        self.config = {
-            "general": {
-                "debug": False,
-                "log_level": "INFO",
-                "data_dir": os.path.join(os.path.dirname(__file__), '../data')
-            },
-            "suricata": {
-                "binary_path": "/usr/bin/suricata",
-                "config_path": os.path.join(os.path.dirname(__file__), '../config/suricata.yaml'),
-                "rule_dir": os.path.join(os.path.dirname(__file__), '../config/rules'),
-                "monitor_interface": "any",
-                "elasticsearch": {
-                    "hosts": ["http://localhost:9200"],
-                    "index": "suricata"
-                }
-            },
-            "analysis": {
-                "packet_reassembly_enabled": True,
-                "anomaly_detection_enabled": True,
-                "traffic_analysis_enabled": True,
-                "event_manager_enabled": True,
-                "report_generator_enabled": True
-            },
-            "ui": {
-                "web_server_port": 5000,
-                "web_frontend_port": 8080,
-                "dashboard_enabled": True,
-                "report_generation_enabled": True
-            }
+# 允许上传的文件扩展名
+ALLOWED_EXTENSIONS = {'pcap', 'pcapng'}
+
+# 创建SuriVisor实例
+surivisor = SuriVisor()
+
+# 检查文件扩展名是否允许
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# 首页路由
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# API路由：获取系统状态
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    status = {
+        "running": surivisor.running,
+        "timestamp": time.time(),
+        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "components": {
+            "packet_reassembler": surivisor.packet_reassembler is not None,
+            "traffic_analyzer": surivisor.traffic_analyzer is not None,
+            "anomaly_detector": surivisor.anomaly_detector is not None,
+            "event_manager": hasattr(surivisor, 'event_manager') and surivisor.event_manager is not None,
+            "report_generator": hasattr(surivisor, 'report_generator') and surivisor.report_generator is not None,
+            "suricata_manager": hasattr(surivisor, 'suricata_manager') and surivisor.suricata_manager is not None
         }
-        
-        # 加载配置文件
-        if config_file and os.path.exists(config_file):
-            self.load_config(config_file)
-        
-        # 确保日志目录存在
-        os.makedirs(os.path.join(os.path.dirname(__file__), '../data/logs'), exist_ok=True)
-        
-        # 设置日志级别
-        log_level = getattr(logging, self.config["general"]["log_level"].upper(), logging.INFO)
-        logging.getLogger().setLevel(log_level)
-        
-        # 验证Suricata配置
-        if not self.validate_suricata_config():
-            logger.error("Suricata配置验证失败，系统启动终止")
-            sys.exit(1)
-        
-        # 初始化组件 分成在线模式专用组件和在线/离线模式公用组件
-        # 下面是在线模式专用组件
-        self.packet_reassembler = None
-        self.traffic_analyzer = None
-        self.anomaly_detector = None
+    }
+    return jsonify(status)
 
-        # 下面是在线/离线模式公用组件
-        # 初始化事件管理器
-        if self.config["analysis"]["event_manager_enabled"]:
-            logger.info("初始化事件管理器...")
-            self.event_manager = EventManager(
-                max_queue_size=1000,
-                worker_threads=2
-            )
-            # 注册事件处理器
-            self.event_manager.register_handler(self.handle_event)
+# API路由：启动在线分析
+@app.route('/api/online/start', methods=['POST'])
+def start_online_analysis():
+    try:
+        # 获取请求参数
+        data = request.get_json() or {}
+        start_suricata = data.get('start_suricata', True)
         
-        # 初始化报告生成器
-        logger.info("初始化报告生成器...")
-        if self.config["analysis"]["report_generator_enabled"]:
-            logger.info("初始化报告生成器...")
-            reports_dir = os.path.join(self.config["general"]["data_dir"], "reports")
-            templates_dir = os.path.join(os.path.dirname(__file__), '../templates')
-            self.report_generator = ReportGenerator(
-                output_dir=reports_dir,
-                template_dir=templates_dir
-            )
+        # 启动在线分析
+        if surivisor.running:
+            return jsonify({"success": False, "message": "系统已经在运行"})
         
-        # 初始化Suricata进程管理器
-        logger.info("初始化Suricata进程管理器...")
-        self.suricata_manager = SuricataProcessManager(
-            binary_path=self.config["suricata"]["binary_path"],
-            config_path=self.config["suricata"]["config_path"],
-            rule_dir=self.config["suricata"]["rule_dir"],
-            log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata")
-        )
+        # 初始化在线组件并启动
+        success = surivisor.start(start_suricata=start_suricata)
         
-        # 系统状态
-        self.running = False
-        self.processing_thread = None
-        
-        # # 启动Web Server服务
-        # if self.config["ui"]["dashboard_enabled"]:
-        #     from src.api.server import create_app
-        #     self.api_app = create_app(self)
-        #     # 启动API服务
-        #     self.api_thread = threading.Thread(
-        #         target=self.api_app.run,
-        #         kwargs={"host": "0.0.0.0", "port": self.config["ui"]["web_server_port"]},
-        #         daemon=True
-        #     )
-        #     self.api_thread.start()
-        #     logger.info(f"API服务已启动，监听端口 {self.config['ui']['web_server_port']}")
-            
-        #     # 启动Vue前端服务
-        #     if self.config["ui"]["dashboard_enabled"]:
-        #         frontend_dir = os.path.join(os.path.dirname(__file__), '../src/ui/dashboard')
-        #         if os.path.exists(frontend_dir):
-        #             self.frontend_thread = threading.Thread(
-        #                 target=lambda: os.system(f"cd {frontend_dir} && npm run serve -- --port {self.config['ui']['web_frontend_port']}"),
-        #                 daemon=True
-        #             )
-        #             self.frontend_thread.start()
-        #             logger.info("Vue前端服务已启动")
-        logger.info("SuriVisor系统初始化完成")
+        if success:
+            return jsonify({"success": True, "message": "在线分析已启动"})
+        else:
+            return jsonify({"success": False, "message": "启动在线分析失败"})
+    except Exception as e:
+        logger.error(f"启动在线分析时发生错误: {e}")
+        return jsonify({"success": False, "message": f"发生错误: {str(e)}"}), 500
 
-    def load_config(self, config_file):
-        """
-        从文件加载配置
+# API路由：停止在线分析
+@app.route('/api/online/stop', methods=['POST'])
+def stop_online_analysis():
+    try:
+        if not surivisor.running:
+            return jsonify({"success": False, "message": "系统未在运行"})
         
-        Args:
-            config_file (str): 配置文件路径
-            
-        Returns:
-            bool: 加载是否成功
-        """
-        try:
-            with open(config_file, 'r') as f:
-                user_config = json.load(f)
-            
-            # 合并配置
-            for section in user_config:
-                if section in self.config:
-                    if isinstance(self.config[section], dict):
-                        self.config[section].update(user_config[section])
-                    else:
-                        self.config[section] = user_config[section]
-            
-            logger.info(f"从{config_file}加载配置成功")
-            return True
-        except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
-            return False
+        success = surivisor.stop()
+        
+        if success:
+            return jsonify({"success": True, "message": "在线分析已停止"})
+        else:
+            return jsonify({"success": False, "message": "停止在线分析失败"})
+    except Exception as e:
+        logger.error(f"停止在线分析时发生错误: {e}")
+        return jsonify({"success": False, "message": f"发生错误: {str(e)}"}), 500
+
+# API路由：上传PCAP文件进行离线分析
+@app.route('/api/offline/upload', methods=['POST'])
+def upload_pcap():
+    # 检查是否有文件上传
+    if 'file' not in request.files:
+        return jsonify({"success": False, "message": "没有上传文件"})
     
-    def save_config(self, config_file):
-        """
-        保存配置到文件
-        
-        Args:
-            config_file (str): 配置文件路径
-            
-        Returns:
-            bool: 保存是否成功
-        """
-        try:
-            with open(config_file, 'w') as f:
-                json.dump(self.config, f, indent=4)
-            logger.info(f"配置已保存到{config_file}")
-            return True
-        except Exception as e:
-            logger.error(f"保存配置文件失败: {e}")
-            return False
+    file = request.files['file']
     
-    def initialize_online_components(self):
-        """
-        初始化在线分析流量系统组件
-        
-        Returns:
-            bool: 初始化是否成功
-        """
-        try:
-            # 初始化日志监控器
-            logger.info("初始化Suricata日志监控器...")
-            self.log_monitor = SuricataLogMonitor(
-                log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata"),
-                es_hosts=["http://127.0.0.1:9200"]  # 可以从配置文件中读取
-            )
-            
-            # 注册日志事件处理器
-            if self.log_monitor:
-                self.log_monitor.register_callback(self._handle_suricata_event)
-            
-            # 初始化数据包重组器
-            if self.config["analysis"]["packet_reassembly_enabled"]:
-                logger.info("初始化数据包重组器...")
-                self.packet_reassembler = PacketReassembler(
-                    timeout=30,
-                    max_fragments=1000,
-                    buffer_size=10485760
-                )
-            
-            # 初始化流量分析器
-            if self.config["analysis"]["traffic_analysis_enabled"]:
-                logger.info("初始化流量分析器...")
-                attack_patterns_file = os.path.join(self.config["general"]["data_dir"], "attack_patterns.json")
-                self.traffic_analyzer = TrafficAnalyzer(attack_patterns_file=attack_patterns_file)
-            
-            # 初始化异常检测器
-            if self.config["analysis"]["anomaly_detection_enabled"]:
-                logger.info("初始化异常检测器...")
-                anomaly_config_file = os.path.join(os.path.dirname(__file__), '../config/anomaly_detection.json')
-                self.anomaly_detector = AnomalyDetector(
-                    config_file=anomaly_config_file,
-                    alert_callback=self.handle_alert
-                )
-            
-            logger.info("所有在线组件初始化完成")
-            return True
-        except Exception as e:
-            logger.error(f"初始化组件失败: {e}")
-            return False
+    # 检查文件名是否为空
+    if file.filename == '':
+        return jsonify({"success": False, "message": "未选择文件"})
     
-    def handle_alert(self, alert_info):
-        """
-        处理告警信息
+    # 检查文件类型是否允许
+    if not allowed_file(file.filename):
+        return jsonify({"success": False, "message": f"不支持的文件类型，允许的类型: {', '.join(ALLOWED_EXTENSIONS)}"})
+    
+    try:
+        # 安全地获取文件名并保存文件
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        saved_filename = f"{timestamp}_{filename}"
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], saved_filename)
         
-        Args:
-            alert_info (dict): 告警信息
-        """
-        logger.warning(f"收到告警: {alert_info['description']} - 值: {alert_info['value']:.4f}, 阈值: {alert_info['threshold']:.4f}")
+        file.save(file_path)
+        logger.info(f"文件已上传: {file_path}")
         
-        # 保存告警到文件
-        alerts_dir = os.path.join(self.config["general"]["data_dir"], "alerts")
+        return jsonify({
+            "success": True, 
+            "message": "文件上传成功",
+            "file_path": file_path,
+            "filename": saved_filename
+        })
+    except Exception as e:
+        logger.error(f"上传文件时发生错误: {e}")
+        return jsonify({"success": False, "message": f"上传文件时发生错误: {str(e)}"}), 500
+
+# API路由：分析已上传的PCAP文件
+@app.route('/api/offline/analyze', methods=['POST'])
+def analyze_pcap():
+    try:
+        data = request.get_json()
+        if not data or 'file_path' not in data:
+            return jsonify({"success": False, "message": "缺少文件路径参数"})
+        
+        file_path = data['file_path']
+        
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            return jsonify({"success": False, "message": f"文件不存在: {file_path}"})
+        
+        # 执行离线分析
+        logger.info(f"开始分析PCAP文件: {file_path}")
+        success = surivisor.analyze_pcap_file(file_path)
+        
+        if success:
+            # 获取生成的报告文件
+            reports_dir = os.path.join(os.path.dirname(__file__), '../data/reports')
+            pcap_basename = os.path.basename(file_path)
+            report_prefix = f"pcap_analysis_{os.path.splitext(pcap_basename)[0]}"
+            
+            # 查找最新的报告文件
+            report_files = [f for f in os.listdir(reports_dir) if f.startswith(report_prefix) and f.endswith('.html')]
+            report_files.sort(reverse=True)  # 按文件名排序，最新的在前面
+            
+            report_url = None
+            if report_files:
+                report_url = f"/reports/{report_files[0]}"
+            
+            return jsonify({
+                "success": True, 
+                "message": "PCAP文件分析完成",
+                "report_url": report_url
+            })
+        else:
+            return jsonify({"success": False, "message": "PCAP文件分析失败"})
+    except Exception as e:
+        logger.error(f"分析PCAP文件时发生错误: {e}")
+        return jsonify({"success": False, "message": f"分析PCAP文件时发生错误: {str(e)}"}), 500
+
+# 路由：获取报告文件
+@app.route('/reports/<path:filename>')
+def get_report(filename):
+    reports_dir = os.path.join(os.path.dirname(__file__), '../data/reports')
+    return send_from_directory(reports_dir, filename)
+
+# API路由：获取系统报告
+@app.route('/api/reports/generate', methods=['POST'])
+def generate_system_report():
+    try:
+        data = request.get_json() or {}
+        report_type = data.get('report_type', 'html')
+        
+        # 生成报告
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_filename = f"system_report_{timestamp}.{report_type}"
+        report_path = os.path.join(os.path.dirname(__file__), f'../data/reports/{report_filename}')
+        
+        # 调用SuriVisor的报告生成方法
+        report_file = surivisor.generate_report(output_file=report_path, report_type=report_type)
+        
+        if report_file:
+            return jsonify({
+                "success": True, 
+                "message": "系统报告生成成功",
+                "report_url": f"/reports/{report_filename}"
+            })
+        else:
+            return jsonify({"success": False, "message": "生成系统报告失败"})
+    except Exception as e:
+        logger.error(f"生成系统报告时发生错误: {e}")
+        return jsonify({"success": False, "message": f"生成系统报告时发生错误: {str(e)}"}), 500
+
+# API路由：获取告警列表
+@app.route('/api/alerts', methods=['GET'])
+def get_alerts():
+    try:
+        # 获取告警目录
+        alerts_dir = os.path.join(os.path.dirname(__file__), '../data/alerts')
         os.makedirs(alerts_dir, exist_ok=True)
         
-        alert_file = os.path.join(alerts_dir, f"alert_{int(time.time())}.json")
-        try:
-            with open(alert_file, 'w') as f:
-                json.dump(alert_info, f, indent=4)
-        except Exception as e:
-            logger.error(f"保存告警信息失败: {e}")
-        
-        # 如果事件管理器已初始化，发送告警事件
-        if self.event_manager:
-            self.event_manager.create_and_emit_event(
-                event_type="alert",
-                source="anomaly_detector",
-                priority=self._get_alert_priority(alert_info),
-                data=alert_info
-            )
-    
-    def _get_alert_priority(self, alert_info):
-        """
-        根据告警严重程度获取优先级
-        
-        Args:
-            alert_info (dict): 告警信息
-            
-        Returns:
-            int: 优先级，数字越小优先级越高
-        """
-        severity = alert_info.get("severity", "medium").lower()
-        if severity == "critical":
-            return 0
-        elif severity == "high":
-            return 1
-        elif severity == "medium":
-            return 2
-        elif severity == "low":
-            return 3
-        else:
-            return 2  # 默认为中等优先级
-    
-    def handle_event(self, event):
-        """
-        处理事件
-        
-        Args:
-            event (Event): 事件对象
-        """
-        logger.info(f"处理事件: {event}")
-        
-        # 根据事件类型处理
-        if event.event_type == "alert":
-            # 告警事件处理
-            self._handle_alert_event(event)
-        elif event.event_type == "attack":
-            # 攻击事件处理
-            self._handle_attack_event(event)
-        elif event.event_type == "system":
-            # 系统事件处理
-            self._handle_system_event(event)
-        else:
-            logger.warning(f"未知事件类型: {event.event_type}")
-    
-    def _handle_alert_event(self, event):
-        """
-        处理告警事件
-        
-        Args:
-            event (Event): 告警事件对象
-        """
-        logger.info(f"处理告警事件: {event.id}")
-        alert_data = event.data
-        
-        # 记录告警信息
-        alert_file = os.path.join(
-            self.config["general"]["data_dir"],
-            f"alerts/alert_{event.id}.json"
-        )
-        os.makedirs(os.path.dirname(alert_file), exist_ok=True)
-        
-        try:
-            with open(alert_file, 'w') as f:
-                json.dump(event.to_dict(), f, indent=4)
-            logger.info(f"告警信息已保存到{alert_file}")
-        except Exception as e:
-            logger.error(f"保存告警信息失败: {e}")
-        
-        # 根据告警严重程度采取不同措施
-        severity = alert_data.get("severity", "medium").lower()
-        if severity in ["critical", "high"]:
-            # 对于高严重性告警，可以触发额外的响应措施
-            # 例如发送邮件通知、短信通知等
-            logger.warning(f"高严重性告警: {alert_data.get('description', '未知告警')}")
-            
-            # 如果配置了报告生成器，生成告警报告
-            if self.report_generator:
-                self._generate_alert_report(event)
-    
-    def _handle_attack_event(self, event):
-        """
-        处理攻击事件
-        
-        Args:
-            event (Event): 攻击事件对象
-        """
-        logger.warning(f"检测到攻击: {event.id}")
-        attack_data = event.data
-        
-        # 记录攻击信息
-        attack_file = os.path.join(
-            self.config["general"]["data_dir"],
-            f"attacks/attack_{event.id}.json"
-        )
-        os.makedirs(os.path.dirname(attack_file), exist_ok=True)
-        
-        try:
-            with open(attack_file, 'w') as f:
-                json.dump(event.to_dict(), f, indent=4)
-            logger.info(f"攻击信息已保存到{attack_file}")
-        except Exception as e:
-            logger.error(f"保存攻击信息失败: {e}")
-        
-        # 根据攻击类型和严重程度采取不同措施
-        attack_type = attack_data.get("attack_type", "unknown")
-        severity = attack_data.get("severity", "medium").lower()
-        
-        logger.warning(f"攻击类型: {attack_type}, 严重程度: {severity}")
-        
-        # 如果配置了报告生成器，生成攻击报告
-        if self.report_generator:
-            self._generate_attack_report(event)
-    
-    def _handle_system_event(self, event):
-        """
-        处理系统事件
-        
-        Args:
-            event (Event): 系统事件对象
-        """
-        logger.info(f"处理系统事件: {event.id}")
-        system_data = event.data
-        
-        # 根据系统事件类型处理
-        event_subtype = system_data.get("subtype", "unknown")
-        
-        if event_subtype == "startup":
-            logger.info("系统启动事件")
-        elif event_subtype == "shutdown":
-            logger.info("系统关闭事件")
-        elif event_subtype == "config_change":
-            logger.info(f"配置变更事件: {system_data.get('details', {})}")
-        else:
-            logger.info(f"未知系统事件子类型: {event_subtype}")
-    
-    def _handle_suricata_event(self, event_data):
-        """
-        处理Suricata事件
-        
-        Args:
-            event_data (dict): Suricata事件数据
-        """
-        try:
-            # 获取事件类型
-            event_type = event_data.get('event_type')
-            
-            if event_type == 'alert':
-                # 处理告警事件
-                alert_data = {
-                    'timestamp': event_data.get('timestamp'),
-                    'src_ip': event_data.get('src_ip'),
-                    'dest_ip': event_data.get('dest_ip'),
-                    'alert': event_data.get('alert', {}),
-                    'severity': event_data.get('alert', {}).get('severity', 2)
-                }
-                
-                # 创建告警事件
-                if self.event_manager:
-                    self.event_manager.create_and_emit_event(
-                        event_type="alert",
-                        source="suricata",
-                        priority=self._get_alert_priority(alert_data),
-                        data=alert_data
-                    )
-            
-            elif event_type == 'flow':
-                # 处理流量事件
-                flow_data = {
-                    'timestamp': event_data.get('timestamp'),
-                    'src_ip': event_data.get('src_ip'),
-                    'dest_ip': event_data.get('dest_ip'),
-                    'proto': event_data.get('proto'),
-                    'app_proto': event_data.get('app_proto'),
-                    'flow': event_data.get('flow', {})
-                }
-                
-                # 如果配置了流量分析，进行分析
-                if self.traffic_analyzer:
-                    self.traffic_analyzer.analyze_flow(flow_data)
-            
-            elif event_type == 'anomaly':
-                # 处理异常事件
-                anomaly_data = {
-                    'timestamp': event_data.get('timestamp'),
-                    'type': event_data.get('anomaly', {}).get('type'),
-                    'description': event_data.get('anomaly', {}).get('description')
-                }
-                
-                # 如果配置了异常检测，进行处理
-                if self.anomaly_detector:
-                    self.anomaly_detector.process_anomaly(anomaly_data)
-            
-        except Exception as e:
-            logger.error(f'处理Suricata事件时发生错误: {e}')
-    
-    def _generate_alert_report(self, event):
-        """
-        生成告警报告
-        
-        Args:
-            event (Event): 告警事件对象
-        """
-        try:
-            report_data = {
-                "timestamp": time.time(),
-                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "event": event.to_dict(),
-                "system_status": "running" if self.running else "stopped"
-            }
-            
-            # 生成报告文件名
-            report_file = os.path.join(
-                self.config["general"]["data_dir"],
-                f"reports/alert_report_{event.id}.html"
-            )
-            
-            # 使用报告生成器生成HTML报告
-            # 检查report_generator是否为None并且有generate_report方法
-            if self.report_generator and hasattr(self.report_generator, 'generate_report'):
-                self.report_generator.generate_report(
-                data=report_data,
-                report_type="html",
-                output_file=report_file
-            )
-            else:
-                logger.error("报告生成器未初始化或不支持generate_report方法")
-                return False
-                
-            logger.info(f"告警报告已生成: {report_file}")
-        except Exception as e:
-            logger.error(f"生成告警报告失败: {e}")
-    
-    def _generate_attack_report(self, event):
-        """
-        生成攻击报告
-        
-        Args:
-            event (Event): 攻击事件对象
-        """
-        try:
-            report_data = {
-                "timestamp": time.time(),
-                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "event": event.to_dict(),
-                "system_status": "running" if self.running else "stopped",
-                "traffic_analysis": self.traffic_analyzer.get_statistics() if self.traffic_analyzer else None,
-                "anomaly_detection": self.anomaly_detector.generate_anomaly_report() if self.anomaly_detector else None
-            }
-            
-            # 生成报告文件名
-            report_file = os.path.join(
-                self.config["general"]["data_dir"],
-                f"reports/attack_report_{event.id}.html"
-            )
-            
-            # 使用报告生成器生成HTML报告
-            # 检查report_generator是否为None并且有generate_report方法
-            if self.report_generator and hasattr(self.report_generator, 'generate_report'):
-                self.report_generator.generate_report(
-                data=report_data,
-                report_type="html",
-                output_file=report_file
-            )
-            else:
-                logger.error("报告生成器未初始化或不支持generate_report方法")
-                return False
-            
-            logger.info(f"攻击报告已生成: {report_file}")
-        except Exception as e:
-            logger.error(f"生成攻击报告失败: {e}")
-    
-    def start(self, start_suricata=True):
-        """
-        启动实时流量分析告警系统
-        
-        Args:
-            start_suricata (bool): 是否启动Suricata进程
-            
-        Returns:
-            bool: 启动是否成功
-        """
-        if self.running:
-            logger.warning("系统已经在运行")
-            return False
-        
-        # 初始化组件
-        if not self.initialize_online_components():
-            return False
-        
-        # 根据参数决定是否启动Suricata
-        if start_suricata and self.suricata_manager:
-            logger.info("正在启动Suricata进程...")
-            if not self.suricata_manager.start():
-                logger.error("启动Suricata失败")
-                return False
-            logger.info("Suricata进程启动成功")
-            
-            # 启动日志监控
-            if self.log_monitor:
-                if not self.log_monitor.start_monitoring():
-                    logger.error("启动日志监控失败")
-                    return False
-                logger.info("Suricata日志监控已启动")
-        else:
-            logger.info("跳过Suricata进程启动")
-        
-        # 启动异常检测
-        if self.anomaly_detector:
-            self.anomaly_detector.start_monitoring()
-        
-        # 启动事件管理器
-        if self.event_manager:
-            self.event_manager.start()
-        
-        # 设置运行状态
-        self.running = True
-        self.processing_thread = threading.Thread(target=self._processing_loop)
-        self.processing_thread.daemon = True
-        self.processing_thread.start()
-        
-        logger.info("SuriVisor系统已启动")
-        return True
-    
-    def stop(self):
-        """
-        停止系统
-        
-        Returns:
-            bool: 停止是否成功
-        """
-        if not self.running:
-            logger.warning("系统未在运行")
-            return False
-        
-        # 设置停止标志
-        self.running = False
-        
-        # 停止Suricata
-        if self.suricata_manager:
-            self.suricata_manager.stop()
-        
-        # 停止日志监控
-        if self.log_monitor:
-            self.log_monitor.stop_monitoring()
-        
-        # 停止异常检测
-        if self.anomaly_detector:
-            self.anomaly_detector.stop_monitoring()
-        
-        # 停止事件管理器
-        if self.event_manager:
-            self.event_manager.stop()
-        
-        # 等待处理线程结束
-        if self.processing_thread:
-            self.processing_thread.join(timeout=5)
-            
-        # 停止API服务
-        if hasattr(self, 'api_thread') and self.api_thread:
-            self.api_thread.join(timeout=1)
-        
-        logger.info("SuriVisor系统已停止")
-        return True
-    
-    def _processing_loop(self):
-        """
-        主处理循环
-        """
-        while self.running:
-            try:
-                # 实现实时流量处理逻辑
-                # 1. 模拟获取网络数据包
-                packets = self._capture_network_packets()
-                
-                if packets:
-                    # 2. 数据包重组
-                    if self.packet_reassembler:
-                        reassembled_flows = {}
-                        for packet in packets:
-                            flow_id = self._get_flow_id(packet)
-                            seq_num = packet.get('seq_num', 0)
-                            data = packet.get('data', b'')
-                            is_last = packet.get('is_last', False)
-                            
-                            self.packet_reassembler.add_fragment(flow_id, seq_num, data, is_last)
-                            
-                            # 尝试重组完整流
-                            if is_last or len(self.packet_reassembler.fragments[flow_id]) > 10:
-                                reassembled_data = self.packet_reassembler.reassemble_flow(flow_id)
-                                if reassembled_data:
-                                    reassembled_flows[flow_id] = reassembled_data
-                    
-                    # 3. 流量分析
-                    if self.traffic_analyzer and reassembled_flows:
-                        for flow_id, flow_data in reassembled_flows.items():
-                            # 提取流量特征
-                            features = self.traffic_analyzer.extract_features(flow_id, flow_data)
-                            
-                            # 分类流量
-                            classification = self.traffic_analyzer.classify_flow(flow_id, features)
-                            
-                            # 如果检测到攻击，创建事件
-                            if classification and classification.get('is_attack', False):
-                                if self.event_manager:
-                                    self.event_manager.create_and_emit_event(
-                                        event_type="attack",
-                                        source="traffic_analyzer",
-                                        priority=self._get_attack_priority(classification),
-                                        data=classification
-                                    )
-                    
-                    # 4. 异常检测
-                    if self.anomaly_detector:
-                        # 异常检测器已在start()方法中启动，会自动进行检测并通过回调函数处理告警
-                        pass
-                
-                # 临时休眠，避免CPU占用过高
-                time.sleep(0.1)
-            except Exception as e:
-                logger.error(f"处理循环异常: {e}")
-    
-    def _capture_network_packets(self):
-        """
-        通过Suricata捕获网络数据包
-        
-        Returns:
-            list: 捕获的数据包列表
-        """
-        packets = []
-        
-        # 确保Suricata进程管理器已初始化
-        if not hasattr(self, 'suricata_manager') or self.suricata_manager is None:
-            logger.error("Suricata进程管理器未初始化，无法捕获数据包")
-            return packets
-        
-        # 确保Suricata正在运行
-        if not self.suricata_manager.is_running():
-            logger.info("Suricata未运行，正在启动...")
-            interface = self.config["suricata"]["monitor_interface"]
-            if not self.suricata_manager.start(interface=interface):
-                logger.error(f"启动Suricata失败，无法在接口 {interface} 上捕获数据包")
-                return packets
-            # 等待Suricata启动并开始捕获
-            time.sleep(2)
-        
-        # 从日志监控器获取最新的数据包信息
-        if hasattr(self, 'log_monitor') and self.log_monitor is not None:
-            # 确保日志监控器正在运行
-            if not self.log_monitor.running:
-                self.log_monitor.start_monitoring()
-            
-            # 获取最新的事件数据
-            recent_events = self.log_monitor.get_recent_events(limit=100, event_types=['packet', 'flow'])
-            
-            # 处理事件数据，转换为数据包格式
-            for event in recent_events:
-                # 提取数据包相关信息
-                packet_data = {
-                    'timestamp': event.get('timestamp'),
-                    'src_ip': event.get('src_ip'),
-                    'dest_ip': event.get('dest_ip'),
-                    'proto': event.get('proto'),
-                    'src_port': event.get('src_port'),
-                    'dest_port': event.get('dest_port'),
-                    'payload': event.get('payload', ''),
-                    'length': event.get('packet_info', {}).get('packet_len', 0),
-                    'app_proto': event.get('app_proto', ''),
-                    'raw_data': event
-                }
-                packets.append(packet_data)
-        else:
-            logger.error("Suricata日志监控器未初始化，无法获取捕获的数据包")
-        
-        logger.info(f"捕获了 {len(packets)} 个数据包")
-        return packets
-    
-    def _get_flow_id(self, packet):
-        """
-        获取数据包的流ID
-        
-        Args:
-            packet (dict): 数据包信息
-            
-        Returns:
-            str: 流ID
-        """
-        # 实际应用中应该根据五元组（源IP、源端口、目的IP、目的端口、协议）生成流ID
-        src_ip = packet.get('src_ip', '0.0.0.0')
-        src_port = packet.get('src_port', 0)
-        dst_ip = packet.get('dst_ip', '0.0.0.0')
-        dst_port = packet.get('dst_port', 0)
-        protocol = packet.get('protocol', 'tcp')
-        
-        return f"{src_ip}:{src_port}-{dst_ip}:{dst_port}-{protocol}"
-    
-    def _get_attack_priority(self, classification):
-        """
-        根据攻击分类获取优先级
-        
-        Args:
-            classification (dict): 攻击分类信息
-            
-        Returns:
-            int: 优先级，数字越小优先级越高
-        """
-        severity = classification.get("severity", "medium").lower()
-        if severity == "critical":
-            return 0
-        elif severity == "high":
-            return 1
-        elif severity == "medium":
-            return 2
-        elif severity == "low":
-            return 3
-        else:
-            return 2  # 默认为中等优先级
-
-    def analyze_pcap_file(self, pcap_file):
-        """离线分析PCAP文件
-        
-        Args:
-            surivisor (SuriVisor): SuriVisor实例
-            pcap_file (str): PCAP文件路径
-            
-        Returns:
-            bool: 分析是否成功
-        """
-        if not os.path.exists(pcap_file):
-            print(f"错误: PCAP文件 {pcap_file} 不存在")
-            return False
-        
-        print(f"\n开始分析PCAP文件: {pcap_file}")
-        
-        # 使用Suricata进程管理器进行离线分析
-        try:
-            # 确保Suricata进程管理器已初始化
-            if not hasattr(self, 'suricata_manager') or not self.suricata_manager:
-                print("Suricata进程管理器未初始化，无法进行离线分析")
-                return False
-            
-            # 设置日志目录
-            log_dir = os.path.join(self.config["general"]["data_dir"], "logs/suricata")
-            
-            print("正在使用Suricata分析PCAP文件...")
-            # 调用进程管理器的analyze_pcap方法进行分析
-            result = self.suricata_manager.analyze_pcap(pcap_file, log_dir)
-            
-            if not result["success"]:
-                print(f"Suricata分析失败: {result.get('error', '未知错误')}")
-                return False
-            
-            print("PCAP文件分析完成")
-            
-            # 显示分析结果摘要
-            print("\n分析结果摘要:")
-            print(f"检测到 {result['alert_count']} 个告警")
-            
-            # 显示新捕获的告警
-            if result['alerts']:
-                print("\n新捕获的告警:")
-                for i, alert in enumerate(result['alerts']):
-                    print(f"[{i+1}] {alert['signature']}")
-                    print(f"    严重程度: {alert['severity']}")
-                    print(f"    源IP: {alert['src_ip']} -> 目标IP: {alert['dest_ip']}")
-                    print()
-            
-            # 生成分析报告
-            if self.report_generator and self.config["analysis"]["report_generator_enabled"]:
+        # 读取所有告警文件
+        alerts = []
+        for alert_file in os.listdir(alerts_dir):
+            if alert_file.endswith('.json'):
                 try:
-                    # 准备报告数据
-                    # 构建与模板匹配的数据结构
-                    alerts = result.get('alerts', [])
-                    
-                    # 提取攻击信息
-                    attacks = []
-                    for alert in alerts:
-                        attacks.append({
-                            "type": alert.get('signature', '未知攻击'),
-                            "confidence": alert.get('confidence', 90),
-                            "source_ip": alert.get('src_ip', '未知'),
-                            "source_port": alert.get('src_port', '未知'),
-                            "target_ip": alert.get('dest_ip', '未知'),
-                            "target_port": alert.get('dest_port', '未知'),
-                            "protocol": alert.get('proto', '未知'),
-                            "timestamp": alert.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                        })
-                    
-                    # 构建完整的报告数据结构
-                    report_data = {
-                        "timestamp": time.time(),
-                        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "system_status": "running",
-                        
-                        # 数据包重组信息
-                        "packet_reassembly": {
-                            "total_packets": result.get('total_packets', 0),
-                            "total_bytes": result.get('total_bytes', 0),
-                            "reassembled_packets": result.get('reassembled_packets', 0),
-                            "lost_packets": result.get('lost_packets', 0),
-                            "out_of_order_packets": result.get('out_of_order_packets', 0),
-                            "reassembly_success_rate": result.get('reassembly_success_rate', 99.5),
-                            "avg_reassembly_time": result.get('avg_reassembly_time', 1.2)
-                        },
-                        
-                        # 流量分析信息
-                        "traffic_analysis": {
-                            "analyzed_flows": result.get('analyzed_flows', 0),
-                            "tcp_flows": result.get('tcp_flows', 0),
-                            "udp_flows": result.get('udp_flows', 0),
-                            "avg_flow_size": result.get('avg_flow_size', 0),
-                            "max_flow_size": result.get('max_flow_size', 0),
-                            "detected_attacks": len(attacks),
-                            "attacks": attacks
-                        },
-                        
-                        # 异常检测信息
-                        "anomaly_detection": {
-                            "total_anomalies": result.get('total_anomalies', len(alerts)),
-                            "anomalies": [{
-                                "description": alert.get('signature', '未知异常'),
-                                "value": alert.get('value', 1),
-                                "threshold": alert.get('threshold', 0.5),
-                                "severity": alert.get('severity', 1),
-                                "datetime": alert.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                            } for alert in alerts]
-                        },
-                        
-                        # 事件管理信息
-                        "event_manager": {
-                            "events_received": result.get('events_received', len(alerts)),
-                            "events_processed": result.get('events_processed', len(alerts)),
-                            "events_dropped": result.get('events_dropped', 0),
-                            "avg_processing_time": result.get('avg_processing_time', 0.05),
-                            "queue_size": result.get('queue_size', 0),
-                            "queue_full_percentage": result.get('queue_full_percentage', 0),
-                            "events_by_type": result.get('events_by_type', {"alert": len(alerts)})
-                        }
-                    }
-                    
-                    # 添加元数据
-                    metadata = {
-                        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "generator": "SuriVisor",
-                        "version": "1.0.0"
-                    }
-                    
-                    # 生成报告文件名
-                    pcap_basename = os.path.basename(pcap_file)
-                    report_filename = f"pcap_analysis_{os.path.splitext(pcap_basename)[0]}_{int(time.time())}.html"
-                    report_path = os.path.join(self.config["general"]["data_dir"], "reports", report_filename)
-                    
-                    # 确保报告目录存在
-                    os.makedirs(os.path.dirname(report_path), exist_ok=True)
-                    
-                    # 生成HTML报告
-                    report_file = self.report_generator.generate_report(
-                        data=report_data,
-                        report_type="html",
-                        output_file=report_path,
-                        options={"metadata": metadata}
-                    )
-                    
-                    print(f"\n分析报告已生成: {report_file}")
+                    with open(os.path.join(alerts_dir, alert_file), 'r') as f:
+                        alert_data = json.load(f)
+                        alerts.append(alert_data)
                 except Exception as e:
-                    print(f"生成报告时发生错误: {e}")
-            
-            return True
-        except Exception as e:
-            print(f"离线分析过程中发生错误: {e}")
-            return False
-        finally:
-            # 不需要停止Suricata进程，因为analyze_pcap方法会创建一个独立的进程
-            # 只需要清理日志监控
-            if hasattr(self, 'log_monitor') and self.log_monitor:
-                self.log_monitor.stop_monitoring()
-    
-    def generate_report(self, output_file=None, report_type="json"):
-        """
-        生成系统报告
+                    logger.error(f"读取告警文件 {alert_file} 时发生错误: {e}")
         
-        Args:
-            output_file (str): 输出文件路径，如果为None则返回报告内容
-            report_type (str): 报告类型，支持"json"、"html"、"pdf"、"csv"，默认为"json"
-            
-        Returns:
-            str or bool: 如果output_file为None且report_type为"json"，返回报告内容；
-                        否则返回生成的报告文件路径或操作是否成功
-        """
-        # 收集各组件的报告
-        report = {
-            "timestamp": time.time(),
-            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "system_status": "running" if self.running else "stopped"
-        }
+        # 按时间戳排序，最新的在前面
+        alerts.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
         
-        # 添加数据包重组器报告
-        if self.packet_reassembler:
-            report["packet_reassembly"] = self.packet_reassembler.get_reassembly_statistics()
-        
-        # 添加流量分析器报告
-        if self.traffic_analyzer:
-            report["traffic_analysis"] = self.traffic_analyzer.get_statistics()
-        
-        # 添加异常检测器报告
-        if self.anomaly_detector:
-            anomaly_report = self.anomaly_detector.generate_anomaly_report()
-            # 确保 anomaly_report 是字符串类型
-            if isinstance(anomaly_report, str):
-                report["anomaly_detection"] = json.loads(anomaly_report)
-            else:
-                report["anomaly_detection"] = anomaly_report
-        
-        # 添加事件管理器报告
-        if self.event_manager:
-            report["event_manager"] = self.event_manager.get_statistics()
-        
-        # 如果有报告生成器且不是JSON格式或指定了输出文件，使用报告生成器
-        if self.report_generator and (report_type != "json" or output_file):
-            # 如果未指定输出文件，生成默认文件名
-            if not output_file:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = os.path.join(
-                    self.config["general"]["data_dir"], 
-                    f"reports/report_{timestamp}.{report_type}"
-                )
-            
-            # 使用报告生成器生成报告
-            return self.report_generator.generate_report(
-                data=report,
-                report_type=report_type,
-                output_file=output_file
-            )
-        
-        # 如果是JSON格式且未指定输出文件，返回JSON字符串
-        if report_type == "json" and not output_file:
-            return json.dumps(report, indent=4)
-        
-        # 否则，写入JSON文件
-        try:
-            # 确保输出文件的目录存在
-            if output_file:
-                output_dir = os.path.dirname(output_file)
-                if output_dir:
-                    os.makedirs(output_dir, exist_ok=True)
-                with open(output_file, 'w') as f:
-                    json.dump(report, f, indent=4)
-                logger.info(f"系统报告已保存到{output_file}")
-                return output_file
-        except Exception as e:
-            logger.error(f"保存系统报告失败: {e}")
-            return False
+        return jsonify({
+            "success": True,
+            "alerts": alerts,
+            "total": len(alerts)
+        })
+    except Exception as e:
+        logger.error(f"获取告警列表时发生错误: {e}")
+        return jsonify({"success": False, "message": f"获取告警列表时发生错误: {str(e)}"}), 500
 
-    def start_online_detection(self):
-        """启动在线检测模式
-        
-        Args:
-            surivisor (self): SuriVisor实例
-            
-        Returns:
-            bool: 启动是否成功
-        """
-        print("\n启动在线检测模式...")
-        
-        # 启动系统并启动Suricata进程
-        if not self.start(start_suricata=True):
-            print("启动在线检测模式失败")
-            return False
-        
-        print("在线检测模式已启动")
-        print("Suricata进程正在监控网络流量")
-        print("按 Ctrl+C 停止检测")
-        
-        try:
-            # 显示实时统计信息
-            while True:
-                # 获取Suricata状态
-                if self.suricata_manager:
-                    status = self.suricata_manager.status()
-                    print(f"\r运行时间: {status.get('uptime', 0)}秒 | 内存使用: {status.get('memory_usage', 0)}KB", end="")
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n\n正在停止在线检测...")
-            self.stop()
-            print("在线检测已停止")
-        
-        return True
-
-def show_menu():
-    """显示主菜单"""
-    print("\n" + "=" * 50)
-    print("SuriVisor - 基于Suricata的威胁分析系统")
-    print("=" * 50)
-    print("1. 离线分析模式 - 分析PCAP文件")
-    print("2. 在线检测模式 - 实时监控网络流量")
-    print("0. 退出系统")
-    print("=" * 50)
-
-def select_pcap_file(data_dir):
-    """选择PCAP文件
+# 主函数
+if __name__ == '__main__':
+    # 确保必要的目录存在
+    os.makedirs(os.path.join(os.path.dirname(__file__), '../data/logs'), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), '../data/pcap'), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), '../data/reports'), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), '../data/alerts'), exist_ok=True)
     
-    Args:
-        data_dir (str): 数据目录
-        
-    Returns:
-        str: 选择的PCAP文件路径，如果取消则返回None
-    """
-    pcap_dir = os.path.join(data_dir, "pcap")
-    os.makedirs(pcap_dir, exist_ok=True)
-    
-    # 查找所有pcap文件
-    pcap_files = glob.glob(os.path.join(pcap_dir, "*.pcap")) + \
-                 glob.glob(os.path.join(pcap_dir, "*.pcapng"))
-    
-    if not pcap_files:
-        print(f"\n未找到PCAP文件。请将PCAP文件放置在 {pcap_dir} 目录下")
-        return None
-    
-    print("\n可用的PCAP文件:")
-    for i, pcap in enumerate(pcap_files):
-        print(f"{i+1}. {os.path.basename(pcap)}")
-    print("0. 返回主菜单")
-    
-    while True:
-        try:
-            choice = int(input("\n请选择要分析的PCAP文件 [0-{}]: ".format(len(pcap_files))))
-            if choice == 0:
-                return None
-            elif 1 <= choice <= len(pcap_files):
-                return pcap_files[choice-1]
-            else:
-                print("无效的选择，请重试")
-        except ValueError:
-            print("请输入有效的数字")
-
-if __name__ == "__main__":
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description="SuriVisor - 基于Suricata的威胁分析系统")
-    parser.add_argument("-c", "--config", help="配置文件路径")
-    parser.add_argument("-d", "--debug", action="store_true", help="启用调试模式")
-    parser.add_argument("--offline", help="直接进入离线分析模式并分析指定的PCAP文件")
-    parser.add_argument("--online", action="store_true", help="直接进入在线检测模式")
-    args = parser.parse_args()
-    
-    # 创建SuriVisor实例
-    surivisor = SuriVisor(config_file=args.config)
-    
-    # 根据命令行参数直接进入特定模式
-    if args.offline:
-        analyze_pcap_file(surivisor, args.offline)
-        sys.exit(0)
-    elif args.online:
-        start_online_detection(surivisor)
-        sys.exit(0)
-    
-    # 交互式菜单
-    while True:
-        show_menu()
-        choice = input("请选择操作 [0-2]: ")
-        
-        if choice == "1":
-            # 离线分析模式
-            pcap_file = select_pcap_file(surivisor.config["general"]["data_dir"])
-            if pcap_file:
-                surivisor.analyze_pcap_file(pcap_file)
-        
-        elif choice == "2":
-            # 在线检测模式
-            surivisor.start_online_detection()
-        
-        elif choice == "0":
-            print("\n感谢使用SuriVisor系统，再见！")
-            break
-        
-        else:
-            print("\n无效的选择，请重试")
+    # 启动Flask应用
+    port = surivisor.config["ui"]["web_server_port"]
+    app.run(host='0.0.0.0', port=port, debug=surivisor.config["general"]["debug"])
