@@ -1,0 +1,11 @@
+data/logs/suricata/eve.json
+data/logs/suricata/fast.log
+data/logs/suricata/suricata.log
+data/logs/suricata/stats.log
+data/logs/surivisor.log
+data/reports
+src/ui/dashboard/node_modules
+docs
+venv
+etc
+config/rules/suricata.rules
