@@ -214,6 +214,9 @@ class EventDetector:
     def start_monitoring(self, event_manager):
         """
         启动监控
+
+        Args:
+            event_manager: EventManager实例
         
         Returns:
             bool: 启动是否成功
@@ -276,22 +279,50 @@ class EventDetector:
         Returns:
             dict: 事件类型及其优先级的映射字典
         """
-        # 默认的事件处理器映射
-        default_handlers = {
-            'alert': 0,  # 高优先级
-            'anomaly': 1,
-            'flow': 2,
-            'http': 3,
-            'dns': 3,
-            'tls': 3,
-            'ssh': 3
-        }
+        # 如果事件管理器已设置，则使用其handlers属性中的事件类型
+        if self.event_manager is not None:
+            # 从事件管理器的handlers中提取事件类型
+            # 注意：event_manager.handlers是defaultdict(list)，键为事件类型
+            # 为每种事件类型分配优先级
+            handlers_dict = {}
+            for event_type in self.event_manager.handlers.keys():
+                # 为不同事件类型设置默认优先级
+                if event_type == 'alert':
+                    handlers_dict[event_type] = 0  # 最高优先级
+                elif event_type == 'anomaly':
+                    handlers_dict[event_type] = 1
+                else:
+                    handlers_dict[event_type] = 2  # 其他事件类型默认优先级
+            
+            # 如果没有找到任何处理器，使用默认配置
+            if not handlers_dict:
+                handlers_dict = self._get_default_handlers()
+            
+            return handlers_dict
         
         # 如果配置中有自定义的事件处理器映射，则使用配置中的
         if hasattr(self, 'config') and 'event_handlers' in self.config:
             return self.config['event_handlers']
         
-        return default_handlers
+        # 如果没有事件管理器和自定义配置，则使用默认配置
+        return self._get_default_handlers()
+        
+    def _get_default_handlers(self):
+        """
+        获取默认的事件处理器映射
+        
+        Returns:
+            dict: 默认的事件类型及其优先级的映射字典
+        """
+        return {
+            'alert': 0,      # 高优先级
+            'anomaly': 1,    # 中高优先级
+            'flow': 2,       # 中优先级
+            'http': 3,       # 低优先级
+            'dns': 3,        # 低优先级
+            'tls': 3,        # 低优先级
+            'ssh': 3         # 低优先级
+        }
     
     def _monitoring_loop(self):
         """
@@ -304,10 +335,14 @@ class EventDetector:
         # 初始化ES客户端
         es_client = ESClient()
         
-        # 使用事件管理器实例
-        event_manager = self.event_manager if hasattr(self, 'event_manager') and self.event_manager else EventManager()
+        # 确保事件管理器实例存在
+        if not self.event_manager:
+            logger.warning("事件管理器未设置，创建默认实例")
+            self.event_manager = EventManager()
+            self.event_manager.start()  # 确保事件管理器已启动
         
-        # 事件类型及其处理优先级映射
+        # 获取事件类型及其处理优先级映射
+        # 这里使用get_event_handlers方法，该方法会优先使用event_manager中的handlers
         event_handlers = self.get_event_handlers()
         
         # 记录上次查询时间
@@ -331,19 +366,19 @@ class EventDetector:
                     # 处理事件
                     for event_data in events:
                         try:
-                            # 创建事件对象
-                            event = Event(
+                            # 使用事件管理器的create_and_emit_event方法创建并发送事件
+                            # 这样可以确保事件格式与事件管理器期望的一致
+                            success = self.event_manager.create_and_emit_event(
                                 event_type=event_type,
-                                # TODO: 确定事件的来源,先写es
                                 source="es_client",
                                 priority=priority,
                                 data=event_data
                             )
                             
-                            # 将事件发送到事件管理器的事件队列
-                            event_manager.emit_event(event)
-                            
-                            logger.debug(f"已将{event_type}事件添加到事件队列: {event.id}")
+                            if success:
+                                logger.debug(f"已将{event_type}事件添加到事件队列")
+                            else:
+                                logger.warning(f"添加{event_type}事件到队列失败，可能队列已满")
                             
                         except Exception as e:
                             logger.error(f"处理{event_type}事件失败: {e}")
