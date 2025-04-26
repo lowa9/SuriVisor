@@ -28,15 +28,23 @@ from src.core.event_manager.event_manager import EventManager, Event
 from src.core.report_generator.report_generator import ReportGenerator
 from src.core.suricata_monitor.process_manager import SuricataProcessManager
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                   handlers=[
-                       logging.FileHandler(os.path.join(os.path.dirname(__file__), '../data/logs/surivisor.log')),
-                       logging.StreamHandler()
-                   ])
-logger = logging.getLogger("SuriVisor")
+# 创建 Logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # 全局最低级别（DEBUG）
 
+# --- 文件处理器（记录所有 DEBUG 及以上日志）---
+file_handler = logging.FileHandler(os.path.join(os.path.dirname(__file__),'../data/logs/surivisor.log'), mode='a')
+file_handler.setLevel(logging.DEBUG)  # 文件记录 DEBUG+
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# # --- 控制台处理器（只显示 INFO 及以上日志）---
+# console_handler = logging.StreamHandler()
+# console_handler.setLevel(logging.INFO)  # 控制台只显示 INFO+
+# console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
+# 添加处理器
+logger.addHandler(file_handler)
+# logger.addHandler(console_handler)
 
 class SuriVisor:
     """
@@ -138,8 +146,36 @@ class SuriVisor:
                 max_queue_size=1000,
                 worker_threads=2
             )
-            # TODO:注册事件处理器
-            self.event_manager.register_handler()
+            
+            # 导入并初始化事件处理器
+            from src.core.event_manager.event_handler import EventHandler
+            self.event_handler = EventHandler()
+            
+            # 注册各类事件处理器
+            logger.info("注册事件处理器...")
+            # 注册告警事件处理器
+            self.event_manager.register_handler(
+                handler=self.event_handler.handle_alert_event,
+                event_types=["alert"]
+            )
+            
+            # 注册异常事件处理器
+            self.event_manager.register_handler(
+                handler=self.event_handler.handle_anomaly_event,
+                event_types=["anomaly"]
+            )
+            
+            # 注册流量事件处理器
+            self.event_manager.register_handler(
+                handler=self.event_handler.handle_flow_event,
+                event_types=["flow"]
+            )
+            
+            # 注册统计事件处理器
+            self.event_manager.register_handler(
+                handler=self.event_handler.handle_stats_event,
+                event_types=["stats"]
+            )
         
         # 初始化报告生成器
         logger.info("初始化报告生成器...")
@@ -714,7 +750,7 @@ class SuriVisor:
             print(f"离线分析过程中发生错误: {e}")
             return False
 
-    def generate_report(self, output_file=None, report_type="json"):
+    def generate_report(self, output_file=None, report_type="html"):
         """
         生成系统报告
         
@@ -812,7 +848,7 @@ class SuriVisor:
                 # 获取Suricata状态
                 if self.suricata_manager:
                     status = self.suricata_manager.status()
-                    print(f"\r运行时间: {status.get('uptime', 0)}秒 | 内存使用: {status.get('memory_usage', 0)}KB", end="")
+                    print(f"\r运行时间: {status.get('uptime', 0)}秒 | 内存使用: {status.get('memory_usage', 0)}KB\n", end="")
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\n\n正在停止在线检测...")
@@ -879,14 +915,6 @@ if __name__ == "__main__":
     
     # 创建SuriVisor实例
     surivisor = SuriVisor(config_file=args.config)
-    
-    # 根据命令行参数直接进入特定模式
-    if args.offline:
-        surivisor.analyze_pcap_file(surivisor, args.offline)
-        sys.exit(0)
-    elif args.online:
-        surivisor.start_online_detection(surivisor)
-        sys.exit(0)
     
     # 交互式菜单
     while True:

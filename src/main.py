@@ -63,9 +63,8 @@ def get_status():
         "timestamp": time.time(),
         "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "components": {
-            "packet_reassembler": surivisor.packet_reassembler is not None,
             "traffic_analyzer": surivisor.traffic_analyzer is not None,
-            "anomaly_detector": surivisor.anomaly_detector is not None,
+            "event_detector": surivisor.event_detector is not None,
             "event_manager": hasattr(surivisor, 'event_manager') and surivisor.event_manager is not None,
             "report_generator": hasattr(surivisor, 'report_generator') and surivisor.report_generator is not None,
             "suricata_manager": hasattr(surivisor, 'suricata_manager') and surivisor.suricata_manager is not None

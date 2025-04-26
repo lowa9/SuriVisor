@@ -17,7 +17,23 @@ import json
 import uuid
 from typing import Optional, Dict, Any, Union
 
+# 创建 Logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # 全局最低级别（DEBUG）
+
+# --- 文件处理器（记录所有 DEBUG 及以上日志）---
+file_handler = logging.FileHandler(os.path.join(os.path.dirname(__file__),'../../../data/logs/surivisor.log'), mode='a')
+file_handler.setLevel(logging.DEBUG)  # 文件记录 DEBUG+
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# # --- 控制台处理器（只显示 INFO 及以上日志）---
+# console_handler = logging.StreamHandler()
+# console_handler.setLevel(logging.INFO)  # 控制台只显示 INFO+
+# console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
+# 添加处理器
+logger.addHandler(file_handler)
+# logger.addHandler(console_handler)
 
 class SuricataProcessManager:
     """Suricata进程管理器"""
@@ -180,7 +196,7 @@ class SuricataProcessManager:
             bool: 停止是否成功
         """
         if not self.running:
-            logger.warning('Suricata进程未在运行')
+#            logger.debug('Suricata进程未在运行')
             return False
         
         try:
