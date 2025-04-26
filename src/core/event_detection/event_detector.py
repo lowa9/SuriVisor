@@ -15,27 +15,27 @@ import logging
 import json
 import threading
 from collections import defaultdict, deque
-from datetime import datetime
-
+from datetime import datetime, timedelta
+from src.core.event_manager import EventManager
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-class AnomalyDetector:
+class EventDetector:
     """
     网络异常检测器类
     
     实现了对关键网络指标的监测机制，用于及时发现并报警网络异常。
     """
     
-    def __init__(self, config_file=None, alert_callback=None):
+    def __init__(self, config_file=None, event_callback=None):
         """
         初始化网络异常检测器
         
         Args:
             config_file (str): 配置文件路径
-            alert_callback (callable): 告警回调函数，接收告警信息作为参数
+            event_callback (callable): 告警回调函数，接收告警信息作为参数
         """
         # 默认配置
         self.config = {
@@ -144,14 +144,18 @@ class AnomalyDetector:
                 }
         
         # 告警回调函数
-        self.alert_callback = alert_callback
+        self.event_callback = event_callback
         
         # 告警历史
         self.alert_history = []
         
+        # 事件管理器
+        self.event_manager = None
+        
         # 监控状态
         self.monitoring_active = False
         self.monitoring_thread = None
+        self.running = False  # 控制监控循环的运行标志
         
         # 学习模式数据
         self.learning_mode = False
@@ -207,135 +211,7 @@ class AnomalyDetector:
             logger.error(f"保存配置文件失败: {e}")
             return False
     
-    def update_metric(self, metric_name, value):
-        """
-        更新指标值
-        
-        Args:
-            metric_name (str): 指标名称
-            value (float): 指标值
-            
-        Returns:
-            bool: 更新是否成功
-        """
-        if metric_name not in self.metrics_data:
-            logger.warning(f"未知指标: {metric_name}")
-            return False
-        
-        # 更新指标值
-        self.metrics_data[metric_name]["values"].append(value)
-        self.metrics_data[metric_name]["current_value"] = value
-        
-        # 如果在学习模式，记录数据
-        if self.learning_mode:
-            self.learning_data[metric_name].append(value)
-        
-        # 检查是否超过阈值
-        self._check_threshold(metric_name)
-        
-        return True
-    
-    def _check_threshold(self, metric_name):
-        """
-        检查指标是否超过阈值
-        
-        Args:
-            metric_name (str): 指标名称
-        """
-        if metric_name not in self.metrics_data or metric_name not in self.config["metrics"]:
-            return
-        
-        metric_data = self.metrics_data[metric_name]
-        metric_config = self.config["metrics"][metric_name]
-        
-        current_value = metric_data["current_value"]
-        threshold = metric_config["threshold"]
-        
-        # 检查是否超过阈值
-        if current_value > threshold:
-            # 更新状态
-            old_status = metric_data["status"]
-            metric_data["status"] = "alert"
-            
-            # 如果状态从正常变为告警，触发告警
-            if old_status == "normal":
-                self._trigger_alert(metric_name)
-        else:
-            # 恢复正常
-            if metric_data["status"] == "alert":
-                metric_data["status"] = "normal"
-                self._trigger_recovery(metric_name)
-    
-    def _trigger_alert(self, metric_name):
-        """
-        触发告警
-        
-        Args:
-            metric_name (str): 指标名称
-        """
-        current_time = time.time()
-        metric_data = self.metrics_data[metric_name]
-        metric_config = self.config["metrics"][metric_name]
-        
-        # 检查告警间隔
-        min_interval = self.config["alert"]["min_interval"]
-        if current_time - metric_data["last_alert_time"] < min_interval:
-            logger.debug(f"告警抑制: {metric_name} 在最小间隔内")
-            return
-        
-        # 检查每小时最大告警数
-        hour_start = current_time - 3600
-        recent_alerts = [a for a in self.alert_history if a["time"] > hour_start]
-        if len(recent_alerts) >= self.config["alert"]["max_alerts_per_hour"]:
-            logger.warning(f"告警限制: 已达到每小时最大告警数 {self.config['alert']['max_alerts_per_hour']}")
-            return
-        
-        # 创建告警信息
-        alert_info = {
-            "metric": metric_name,
-            "description": metric_config["description"],
-            "value": metric_data["current_value"],
-            "threshold": metric_config["threshold"],
-            "severity": metric_config["severity"],
-            "time": current_time,
-            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "active"
-        }
-        
-        # 记录告警
-        metric_data["alerts"].append(alert_info)
-        metric_data["last_alert_time"] = current_time
-        self.alert_history.append(alert_info)
-        
-        # 调用告警回调函数
-        if self.alert_callback:
-            try:
-                self.alert_callback(alert_info)
-            except Exception as e:
-                logger.error(f"调用告警回调函数失败: {e}")
-        
-        # 记录告警日志
-        logger.warning(f"告警: {metric_config['description']}超过阈值 - 当前值: {metric_data['current_value']:.4f}, 阈值: {metric_config['threshold']:.4f}, 严重程度: {metric_config['severity']}")
-    
-    def _trigger_recovery(self, metric_name):
-        """
-        触发恢复通知
-        
-        Args:
-            metric_name (str): 指标名称
-        """
-        metric_data = self.metrics_data[metric_name]
-        metric_config = self.config["metrics"][metric_name]
-        
-        # 更新最近的告警状态
-        if metric_data["alerts"]:
-            metric_data["alerts"][-1]["status"] = "resolved"
-            metric_data["alerts"][-1]["resolve_time"] = time.time()
-        
-        # 记录恢复日志
-        logger.info(f"恢复: {metric_config['description']}已恢复正常 - 当前值: {metric_data['current_value']:.4f}, 阈值: {metric_config['threshold']:.4f}")
-    
-    def start_monitoring(self):
+    def start_monitoring(self, event_manager):
         """
         启动监控
         
@@ -347,6 +223,8 @@ class AnomalyDetector:
             return False
         
         self.monitoring_active = True
+        self.running = True  # 设置运行标志
+        self.set_event_manager(event_manager)
         self.monitoring_thread = threading.Thread(target=self._monitoring_loop)
         self.monitoring_thread.daemon = True
         self.monitoring_thread.start()
@@ -366,32 +244,120 @@ class AnomalyDetector:
             return False
         
         self.monitoring_active = False
+        self.running = False  # 设置运行标志为False，使监控循环退出
         if self.monitoring_thread:
             self.monitoring_thread.join(timeout=5)
         
         logger.info("网络异常监控已停止")
         return True
+        
+    def set_event_manager(self, event_manager):
+        """
+        设置事件管理器实例
+        
+        Args:
+            event_manager: EventManager实例
+            
+        Returns:
+            bool: 设置是否成功
+        """
+        if event_manager is None:
+            logger.warning("提供的事件管理器为空")
+            return False
+            
+        self.event_manager = event_manager
+        logger.info("已设置事件管理器实例")
+        return True
+        
+    def get_event_handlers(self):
+        """
+        获取事件类型及其处理优先级映射
+        
+        Returns:
+            dict: 事件类型及其优先级的映射字典
+        """
+        # 默认的事件处理器映射
+        default_handlers = {
+            'alert': 0,  # 高优先级
+            'anomaly': 1,
+            'flow': 2,
+            'http': 3,
+            'dns': 3,
+            'tls': 3,
+            'ssh': 3
+        }
+        
+        # 如果配置中有自定义的事件处理器映射，则使用配置中的
+        if hasattr(self, 'config') and 'event_handlers' in self.config:
+            return self.config['event_handlers']
+        
+        return default_handlers
     
     def _monitoring_loop(self):
         """
         监控循环
         """
-        last_report_time = time.time()
+        from src.core.ElasticSearch import ESClient
+        from src.core.event_manager import EventManager
+        from src.core.event_manager.event_manager import Event
         
-        while self.monitoring_active:
-            current_time = time.time()
-            
-            # 检查是否需要生成报告
-            if current_time - last_report_time >= self.config["monitoring"]["report_interval"]:
-                self._generate_report()
-                last_report_time = current_time
-            
-            # 检查学习模式是否结束
-            if self.learning_mode and current_time - self.learning_start_time >= self.config["monitoring"]["learning_period"]:
-                self._finish_learning()
-            
-            # 休眠一段时间
-            time.sleep(self.config["monitoring"]["sampling_interval"])
+        # 初始化ES客户端
+        es_client = ESClient()
+        
+        # 使用事件管理器实例
+        event_manager = self.event_manager if hasattr(self, 'event_manager') and self.event_manager else EventManager()
+        
+        # 事件类型及其处理优先级映射
+        event_handlers = self.get_event_handlers()
+        
+        # 记录上次查询时间
+        last_query_time = datetime.now() - timedelta(minutes=1)
+        
+        logger.info("事件检测循环已启动")
+        
+        while self.running:
+            try:
+                current_time = datetime.now()
+                
+                # 查询各类型事件
+                for event_type, priority in event_handlers.items():
+                    events = es_client.query_events(
+                        event_type=event_type,
+                        start_time=last_query_time,
+                        end_time=current_time,
+                        size=100
+                    )
+                    
+                    # 处理事件
+                    for event_data in events:
+                        try:
+                            # 创建事件对象
+                            event = Event(
+                                event_type=event_type,
+                                # TODO: 确定事件的来源,先写es
+                                source="es_client",
+                                priority=priority,
+                                data=event_data
+                            )
+                            
+                            # 将事件发送到事件管理器的事件队列
+                            event_manager.emit_event(event)
+                            
+                            logger.debug(f"已将{event_type}事件添加到事件队列: {event.id}")
+                            
+                        except Exception as e:
+                            logger.error(f"处理{event_type}事件失败: {e}")
+                
+                # 更新上次查询时间
+                last_query_time = current_time
+                
+                # 避免过于频繁查询
+                time.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"事件检测循环异常: {e}")
+                time.sleep(5)  # 发生异常时，暂停一段时间后重试
+    
     
     def _generate_report(self):
         """
@@ -443,64 +409,7 @@ class AnomalyDetector:
         
         return report
     
-    def start_learning_mode(self, duration=None):
-        """
-        启动学习模式，自动调整阈值
-        
-        Args:
-            duration (int): 学习时长（秒），如果为None则使用配置中的值
-            
-        Returns:
-            bool: 启动是否成功
-        """
-        if self.learning_mode:
-            logger.warning("学习模式已经在运行")
-            return False
-        
-        self.learning_mode = True
-        self.learning_data = defaultdict(list)
-        self.learning_start_time = time.time()
-        
-        # 设置学习时长
-        if duration is not None:
-            self.config["monitoring"]["learning_period"] = duration
-        
-        logger.info(f"学习模式已启动，持续时间: {self.config['monitoring']['learning_period']}秒")
-        return True
-    
-    def _finish_learning(self):
-        """
-        完成学习模式，调整阈值
-        """
-        if not self.learning_mode:
-            return
-        
-        logger.info("学习模式完成，调整阈值")
-        
-        # 遍历所有指标
-        for metric_name, values in self.learning_data.items():
-            if not values:
-                continue
-            
-            # 计算统计信息
-            avg_value = sum(values) / len(values)
-            std_dev = (sum((x - avg_value) ** 2 for x in values) / len(values)) ** 0.5
-            
-            # 根据统计信息调整阈值
-            if metric_name in self.config["metrics"]:
-                # 设置新阈值为平均值加上3倍标准差（可配置）
-                new_threshold = avg_value + 3 * std_dev
-                old_threshold = self.config["metrics"][metric_name]["threshold"]
-                
-                # 更新阈值
-                self.config["metrics"][metric_name]["threshold"] = new_threshold
-                
-                logger.info(f"指标 {metric_name} 阈值已调整: {old_threshold:.4f} -> {new_threshold:.4f}")
-        
-        # 重置学习模式
-        self.learning_mode = False
-        self.learning_data = defaultdict(list)
-    
+
     def get_active_alerts(self):
         """
         获取当前活跃的告警
@@ -634,57 +543,3 @@ class AnomalyDetector:
         
         # 否则返回报告内容
         return json.dumps(report, indent=4)
-
-
-# 测试代码
-if __name__ == "__main__":
-    # 定义告警回调函数
-    def alert_handler(alert_info):
-        print(f"\n收到告警: {alert_info['description']}")
-        print(f"当前值: {alert_info['value']:.4f}, 阈值: {alert_info['threshold']:.4f}")
-        print(f"严重程度: {alert_info['severity']}, 时间: {alert_info['datetime']}")
-    
-    # 创建异常检测器实例
-    detector = AnomalyDetector(alert_callback=alert_handler)
-    
-    # 启动监控
-    detector.start_monitoring()
-    
-    try:
-        # 模拟更新指标
-        print("模拟正常网络流量...")
-        for i in range(50):
-            # 正常值
-            detector.update_metric("packet_loss_ratio", 0.01)  # 1%丢包率
-            detector.update_metric("out_of_order_ratio", 0.05)  # 5%乱序比例
-            detector.update_metric("syn_flood_detection", 10)  # 每秒10个SYN包
-            time.sleep(0.1)
-        
-        print("\n模拟网络异常...")
-        # 模拟丢包率异常
-        for i in range(20):
-            detector.update_metric("packet_loss_ratio", 0.08)  # 8%丢包率，超过阈值
-            time.sleep(0.1)
-        
-        # 恢复正常
-        print("\n恢复正常网络状态...")
-        for i in range(20):
-            detector.update_metric("packet_loss_ratio", 0.01)  # 恢复正常
-            time.sleep(0.1)
-        
-        # 模拟SYN洪水攻击
-        print("\n模拟SYN洪水攻击...")
-        for i in range(20):
-            detector.update_metric("syn_flood_detection", 150)  # 每秒150个SYN包，超过阈值
-            time.sleep(0.1)
-        
-        # 生成报告
-        print("\n生成异常报告...")
-        report = detector.generate_anomaly_report()
-        print(report)
-        
-    except KeyboardInterrupt:
-        print("\n测试中断")
-    finally:
-        # 停止监控
-        detector.stop_monitoring()

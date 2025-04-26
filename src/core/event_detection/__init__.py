@@ -8,6 +8,6 @@
 旨在及时发现并报警网络异常，保证关键网络指标监测覆盖率达到80%，并确保报警响应时间不超过3分钟。
 """
 
-from .anomaly_detector import AnomalyDetector
+from .event_detector import EventDetector
 
-__all__ = ['AnomalyDetector']
+__all__ = ['EventDetector']

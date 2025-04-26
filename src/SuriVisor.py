@@ -16,15 +16,14 @@ import argparse
 import json
 import threading
 import yaml
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # 导入核心模块
-from src.core.packet_reassembly.packet_reassembler import PacketReassembler
 from src.core.traffic_analysis.traffic_analyzer import TrafficAnalyzer
-from src.core.anomaly_detection.anomaly_detector import AnomalyDetector
+from src.core.event_detection.event_detector import EventDetector
 from src.core.event_manager.event_manager import EventManager, Event
 from src.core.report_generator.report_generator import ReportGenerator
 from src.core.suricata_monitor.process_manager import SuricataProcessManager
@@ -78,6 +77,8 @@ class SuriVisor:
             config_file (str): 配置文件路径
         """
         # 默认配置
+        self.version = "1.1.0"
+
         self.config = {
             "general": {
                 "debug": False,
@@ -95,7 +96,6 @@ class SuriVisor:
                 }
             },
             "analysis": {
-                "packet_reassembly_enabled": True,
                 "anomaly_detection_enabled": True,
                 "traffic_analysis_enabled": True,
                 "event_manager_enabled": True,
@@ -127,9 +127,8 @@ class SuriVisor:
         
         # 初始化组件 分成在线模式专用组件和在线/离线模式公用组件
         # 下面是在线模式专用组件
-        self.packet_reassembler = None
         self.traffic_analyzer = None
-        self.anomaly_detector = None
+        self.event_detector = None
 
         # 下面是在线/离线模式公用组件
         # 初始化事件管理器
@@ -139,8 +138,8 @@ class SuriVisor:
                 max_queue_size=1000,
                 worker_threads=2
             )
-            # 注册事件处理器
-            self.event_manager.register_handler(self.handle_event)
+            # TODO:注册事件处理器
+            self.event_manager.register_handler()
         
         # 初始化报告生成器
         logger.info("初始化报告生成器...")
@@ -164,31 +163,6 @@ class SuriVisor:
         
         # 系统状态
         self.running = False
-        self.processing_thread = None
-        
-        # # 启动Web Server服务
-        # if self.config["ui"]["dashboard_enabled"]:
-        #     from src.api.server import create_app
-        #     self.api_app = create_app(self)
-        #     # 启动API服务
-        #     self.api_thread = threading.Thread(
-        #         target=self.api_app.run,
-        #         kwargs={"host": "0.0.0.0", "port": self.config["ui"]["web_server_port"]},
-        #         daemon=True
-        #     )
-        #     self.api_thread.start()
-        #     logger.info(f"API服务已启动，监听端口 {self.config['ui']['web_server_port']}")
-            
-        #     # 启动Vue前端服务
-        #     if self.config["ui"]["dashboard_enabled"]:
-        #         frontend_dir = os.path.join(os.path.dirname(__file__), '../src/ui/dashboard')
-        #         if os.path.exists(frontend_dir):
-        #             self.frontend_thread = threading.Thread(
-        #                 target=lambda: os.system(f"cd {frontend_dir} && npm run serve -- --port {self.config['ui']['web_frontend_port']}"),
-        #                 daemon=True
-        #             )
-        #             self.frontend_thread.start()
-        #             logger.info("Vue前端服务已启动")
         logger.info("SuriVisor系统初始化完成")
 
     def load_config(self, config_file):
@@ -246,29 +220,19 @@ class SuriVisor:
             bool: 初始化是否成功
         """
         try:
-            
-            # 初始化数据包重组器
-            if self.config["analysis"]["packet_reassembly_enabled"]:
-                logger.info("初始化数据包重组器...")
-                self.packet_reassembler = PacketReassembler(
-                    timeout=30,
-                    max_fragments=1000,
-                    buffer_size=10485760
-                )
-            
             # 初始化流量分析器
             if self.config["analysis"]["traffic_analysis_enabled"]:
                 logger.info("初始化流量分析器...")
                 attack_patterns_file = os.path.join(self.config["general"]["data_dir"], "attack_patterns.json")
                 self.traffic_analyzer = TrafficAnalyzer(attack_patterns_file=attack_patterns_file)
             
-            # 初始化异常检测器
+            # 初始化事件检测器
             if self.config["analysis"]["anomaly_detection_enabled"]:
                 logger.info("初始化异常检测器...")
-                anomaly_config_file = os.path.join(os.path.dirname(__file__), '../config/anomaly_detection.json')
-                self.anomaly_detector = AnomalyDetector(
-                    config_file=anomaly_config_file,
-                    alert_callback=self.handle_alert
+                event_config_file = os.path.join(os.path.dirname(__file__), '../config/anomaly_detection.json')
+                self.event_detector = EventDetector(
+                    config_file=event_config_file,
+                    event_callback=self.handle_event
                 )
             
             logger.info("所有在线组件初始化完成")
@@ -276,35 +240,6 @@ class SuriVisor:
         except Exception as e:
             logger.error(f"初始化组件失败: {e}")
             return False
-    
-    def handle_alert(self, alert_info):
-        """
-        处理告警信息
-        
-        Args:
-            alert_info (dict): 告警信息
-        """
-        logger.warning(f"收到告警: {alert_info['description']} - 值: {alert_info['value']:.4f}, 阈值: {alert_info['threshold']:.4f}")
-        
-        # 保存告警到文件
-        alerts_dir = os.path.join(self.config["general"]["data_dir"], "alerts")
-        os.makedirs(alerts_dir, exist_ok=True)
-        
-        alert_file = os.path.join(alerts_dir, f"alert_{int(time.time())}.json")
-        try:
-            with open(alert_file, 'w') as f:
-                json.dump(alert_info, f, indent=4)
-        except Exception as e:
-            logger.error(f"保存告警信息失败: {e}")
-        
-        # 如果事件管理器已初始化，发送告警事件
-        if self.event_manager:
-            self.event_manager.create_and_emit_event(
-                event_type="alert",
-                source="anomaly_detector",
-                priority=self._get_alert_priority(alert_info),
-                data=alert_info
-            )
     
     def _get_alert_priority(self, alert_info):
         """
@@ -330,26 +265,22 @@ class SuriVisor:
     
     def handle_event(self, event):
         """
-        处理事件
+        将event添加到队列中
         
         Args:
             event (Event): 事件对象
         """
         logger.info(f"处理事件: {event}")
+        # 如果事件管理器已初始化，发送告警事件
+        if self.event_manager:
+            self.event_manager.create_and_emit_event(
+                event_type=event.event_type,
+                # TODO source
+                source="",
+                priority=self._get_alert_priority(alert_info),
+                data=alert_info
+            )
         
-        # 根据事件类型处理
-        if event.event_type == "alert":
-            # 告警事件处理
-            self._handle_alert_event(event)
-        elif event.event_type == "attack":
-            # 攻击事件处理
-            self._handle_attack_event(event)
-        elif event.event_type == "system":
-            # 系统事件处理
-            self._handle_system_event(event)
-        else:
-            logger.warning(f"未知事件类型: {event.event_type}")
-    
     def _handle_alert_event(self, event):
         """
         处理告警事件
@@ -441,66 +372,6 @@ class SuriVisor:
         else:
             logger.info(f"未知系统事件子类型: {event_subtype}")
     
-    def _handle_suricata_event(self, event_data):
-        """
-        处理Suricata事件
-        
-        Args:
-            event_data (dict): Suricata事件数据
-        """
-        try:
-            # 获取事件类型
-            event_type = event_data.get('event_type')
-            
-            if event_type == 'alert':
-                # 处理告警事件
-                alert_data = {
-                    'timestamp': event_data.get('timestamp'),
-                    'src_ip': event_data.get('src_ip'),
-                    'dest_ip': event_data.get('dest_ip'),
-                    'alert': event_data.get('alert', {}),
-                    'severity': event_data.get('alert', {}).get('severity', 2)
-                }
-                
-                # 创建告警事件
-                if self.event_manager:
-                    self.event_manager.create_and_emit_event(
-                        event_type="alert",
-                        source="suricata",
-                        priority=self._get_alert_priority(alert_data),
-                        data=alert_data
-                    )
-            
-            elif event_type == 'flow':
-                # 处理流量事件
-                flow_data = {
-                    'timestamp': event_data.get('timestamp'),
-                    'src_ip': event_data.get('src_ip'),
-                    'dest_ip': event_data.get('dest_ip'),
-                    'proto': event_data.get('proto'),
-                    'app_proto': event_data.get('app_proto'),
-                    'flow': event_data.get('flow', {})
-                }
-                
-                # 如果配置了流量分析，进行分析
-                if self.traffic_analyzer:
-                    self.traffic_analyzer.analyze_flow(flow_data)
-            
-            elif event_type == 'anomaly':
-                # 处理异常事件
-                anomaly_data = {
-                    'timestamp': event_data.get('timestamp'),
-                    'type': event_data.get('anomaly', {}).get('type'),
-                    'description': event_data.get('anomaly', {}).get('description')
-                }
-                
-                # 如果配置了异常检测，进行处理
-                if self.anomaly_detector:
-                    self.anomaly_detector.process_anomaly(anomaly_data)
-            
-        except Exception as e:
-            logger.error(f'处理Suricata事件时发生错误: {e}')
-    
     def _generate_alert_report(self, event):
         """
         生成告警报告
@@ -538,12 +409,12 @@ class SuriVisor:
         except Exception as e:
             logger.error(f"生成告警报告失败: {e}")
     
-    def _generate_attack_report(self, event):
+    def _generate_anomaly_report(self, event):
         """
-        生成攻击报告
+        生成异常报告
         
         Args:
-            event (Event): 攻击事件对象
+            event (Event): 异常事件对象
         """
         try:
             report_data = {
@@ -552,13 +423,13 @@ class SuriVisor:
                 "event": event.to_dict(),
                 "system_status": "running" if self.running else "stopped",
                 "traffic_analysis": self.traffic_analyzer.get_statistics() if self.traffic_analyzer else None,
-                "anomaly_detection": self.anomaly_detector.generate_anomaly_report() if self.anomaly_detector else None
+                "anomaly_detection": self.event_detector.generate_anomaly_report() if self.event_detector else None
             }
             
             # 生成报告文件名
             report_file = os.path.join(
                 self.config["general"]["data_dir"],
-                f"reports/attack_report_{event.id}.html"
+                f"reports/anomaly_report_{event.id}.html"
             )
             
             # 使用报告生成器生成HTML报告
@@ -573,9 +444,9 @@ class SuriVisor:
                 logger.error("报告生成器未初始化或不支持generate_report方法")
                 return False
             
-            logger.info(f"攻击报告已生成: {report_file}")
+            logger.info(f"异常报告已生成: {report_file}")
         except Exception as e:
-            logger.error(f"生成攻击报告失败: {e}")
+            logger.error(f"生成异常报告失败: {e}")
     
     def start(self, start_suricata=True):
         """
@@ -606,20 +477,16 @@ class SuriVisor:
         else:
             logger.info("跳过Suricata进程启动")
         
-        # 启动异常检测
-        if self.anomaly_detector:
-            self.anomaly_detector.start_monitoring()
-        
         # 启动事件管理器
         if self.event_manager:
             self.event_manager.start()
+
+        # 启动事件检测
+        if self.event_detector:
+            self.event_detector.start_monitoring(self.event_manager)
         
         # 设置运行状态
         self.running = True
-        self.processing_thread = threading.Thread(target=self._processing_loop)
-        self.processing_thread.daemon = True
-        self.processing_thread.start()
-        
         logger.info("SuriVisor系统已启动")
         return True
     
@@ -641,111 +508,16 @@ class SuriVisor:
         if self.suricata_manager:
             self.suricata_manager.stop()
         
-        
         # 停止异常检测
-        if self.anomaly_detector:
-            self.anomaly_detector.stop_monitoring()
+        if self.event_detector:
+            self.event_detector.stop_monitoring()
         
         # 停止事件管理器
         if self.event_manager:
             self.event_manager.stop()
         
-        # 等待处理线程结束
-        if self.processing_thread:
-            self.processing_thread.join(timeout=5)
-            
-        # 停止API服务
-        if hasattr(self, 'api_thread') and self.api_thread:
-            self.api_thread.join(timeout=1)
-        
         logger.info("SuriVisor系统已停止")
         return True
-    
-    def _processing_loop(self):
-        """
-        主处理循环
-        """
-        while self.running:
-            try:
-                # 实现实时流量处理逻辑
-                # 1. 模拟获取网络数据包
-                packets = self._capture_network_packets()
-                
-                if packets:
-                    # 2. 数据包重组
-                    if self.packet_reassembler:
-                        reassembled_flows = {}
-                        for packet in packets:
-                            flow_id = self._get_flow_id(packet)
-                            seq_num = packet.get('seq_num', 0)
-                            data = packet.get('data', b'')
-                            is_last = packet.get('is_last', False)
-                            
-                            self.packet_reassembler.add_fragment(flow_id, seq_num, data, is_last)
-                            
-                            # 尝试重组完整流
-                            if is_last or len(self.packet_reassembler.fragments[flow_id]) > 10:
-                                reassembled_data = self.packet_reassembler.reassemble_flow(flow_id)
-                                if reassembled_data:
-                                    reassembled_flows[flow_id] = reassembled_data
-                    
-                    # 3. 流量分析
-                    if self.traffic_analyzer and reassembled_flows:
-                        for flow_id, flow_data in reassembled_flows.items():
-                            # 提取流量特征
-                            features = self.traffic_analyzer.extract_features(flow_id, flow_data)
-                            
-                            # 分类流量
-                            classification = self.traffic_analyzer.classify_flow(flow_id, features)
-                            
-                            # 如果检测到攻击，创建事件
-                            if classification and classification.get('is_attack', False):
-                                if self.event_manager:
-                                    self.event_manager.create_and_emit_event(
-                                        event_type="attack",
-                                        source="traffic_analyzer",
-                                        priority=self._get_attack_priority(classification),
-                                        data=classification
-                                    )
-                    
-                    # 4. 异常检测
-                    if self.anomaly_detector:
-                        # 异常检测器已在start()方法中启动，会自动进行检测并通过回调函数处理告警
-                        pass
-                
-                # 临时休眠，避免CPU占用过高
-                time.sleep(0.1)
-            except Exception as e:
-                logger.error(f"处理循环异常: {e}")
-    
-    def _capture_network_packets(self):
-        """
-        通过Suricata捕获网络数据包
-        
-        Returns:
-            list: 捕获的数据包列表
-        """
-        packets = []
-        
-        # 确保Suricata进程管理器已初始化
-        if not hasattr(self, 'suricata_manager') or self.suricata_manager is None:
-            logger.error("Suricata进程管理器未初始化，无法捕获数据包")
-            return packets
-        
-        # 确保Suricata正在运行
-        if not self.suricata_manager.is_running():
-            logger.info("Suricata未运行，正在启动...")
-            interface = self.config["suricata"]["monitor_interface"]
-            if not self.suricata_manager.start(interface=interface):
-                logger.error(f"启动Suricata失败，无法在接口 {interface} 上捕获数据包")
-                return packets
-            # 等待Suricata启动并开始捕获
-            time.sleep(2)
-        
-        # TODO：从es中获取最新的数据包信息
-        
-        logger.info(f"捕获了 {len(packets)} 个数据包")
-        return packets
     
     def _get_flow_id(self, packet):
         """
@@ -914,7 +686,7 @@ class SuriVisor:
                     metadata = {
                         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "generator": "SuriVisor",
-                        "version": "1.0.0"
+                        "version": self.version
                     }
                     
                     # 生成报告文件名
@@ -942,7 +714,6 @@ class SuriVisor:
             print(f"离线分析过程中发生错误: {e}")
             return False
 
-    
     def generate_report(self, output_file=None, report_type="json"):
         """
         生成系统报告
@@ -962,17 +733,13 @@ class SuriVisor:
             "system_status": "running" if self.running else "stopped"
         }
         
-        # 添加数据包重组器报告
-        if self.packet_reassembler:
-            report["packet_reassembly"] = self.packet_reassembler.get_reassembly_statistics()
-        
         # 添加流量分析器报告
         if self.traffic_analyzer:
             report["traffic_analysis"] = self.traffic_analyzer.get_statistics()
         
         # 添加异常检测器报告
-        if self.anomaly_detector:
-            anomaly_report = self.anomaly_detector.generate_anomaly_report()
+        if self.event_detector:
+            anomaly_report = self.event_detector.generate_anomaly_report()
             # 确保 anomaly_report 是字符串类型
             if isinstance(anomaly_report, str):
                 report["anomaly_detection"] = json.loads(anomaly_report)
