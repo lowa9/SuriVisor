@@ -133,20 +133,42 @@ class SuriVisor:
             logger.error("Suricata配置验证失败，系统启动终止")
             sys.exit(1)
         
-        # 初始化组件 分成在线模式专用组件和在线/离线模式公用组件
-        # 下面是在线模式专用组件
+        
         self.traffic_analyzer = None
         self.event_detector = None
-
-        # 下面是在线/离线模式公用组件
-        # 初始化事件管理器
-        if self.config["analysis"]["event_manager_enabled"]:
-            logger.info("初始化事件管理器...")
-            self.event_manager = EventManager(
-                max_queue_size=1000,
-                worker_threads=2
+        try:
+            # 初始化Suricata进程管理器
+            logger.info("初始化Suricata进程管理器...")
+            self.suricata_manager = SuricataProcessManager(
+                binary_path=self.config["suricata"]["binary_path"],
+                config_path=self.config["suricata"]["config_path"],
+                rule_dir=self.config["suricata"]["rule_dir"],
+                log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata")
             )
+
+            # 初始化流量分析器
+            if self.config["analysis"]["traffic_analysis_enabled"]:
+                logger.info("初始化流量分析器...")
+                attack_patterns_file = os.path.join(self.config["general"]["data_dir"], "attack_patterns.json")
+                self.traffic_analyzer = TrafficAnalyzer(attack_patterns_file=attack_patterns_file)
             
+            # 初始化事件检测器
+            if self.config["analysis"]["anomaly_detection_enabled"]:
+                logger.info("初始化事件检测器...")
+                event_config_file = os.path.join(os.path.dirname(__file__), '../config/anomaly_detection.json')
+                self.event_detector = EventDetector(
+                    config_file=event_config_file,
+                    event_callback=self.handle_event
+                )
+
+            # 初始化事件管理器
+            if self.config["analysis"]["event_manager_enabled"]:
+                logger.info("初始化事件管理器...")
+                self.event_manager = EventManager(
+                    max_queue_size=1000,
+                    worker_threads=2
+                )
+                
             # 导入并初始化事件处理器
             from src.core.event_manager.event_handler import EventHandler
             self.event_handler = EventHandler()
@@ -176,30 +198,24 @@ class SuriVisor:
                 handler=self.event_handler.handle_stats_event,
                 event_types=["stats"]
             )
-        
-        # 初始化报告生成器
-        logger.info("初始化报告生成器...")
-        if self.config["analysis"]["report_generator_enabled"]:
+            
+            # 初始化报告生成器
             logger.info("初始化报告生成器...")
-            reports_dir = os.path.join(self.config["general"]["data_dir"], "reports")
-            templates_dir = os.path.join(os.path.dirname(__file__), '../templates')
-            self.report_generator = ReportGenerator(
-                output_dir=reports_dir,
-                template_dir=templates_dir
-            )
-        
-        # 初始化Suricata进程管理器
-        logger.info("初始化Suricata进程管理器...")
-        self.suricata_manager = SuricataProcessManager(
-            binary_path=self.config["suricata"]["binary_path"],
-            config_path=self.config["suricata"]["config_path"],
-            rule_dir=self.config["suricata"]["rule_dir"],
-            log_dir=os.path.join(self.config["general"]["data_dir"], "logs/suricata")
-        )
-        
-        # 系统状态
-        self.running = False
-        logger.info("SuriVisor系统初始化完成")
+            if self.config["analysis"]["report_generator_enabled"]:
+                logger.info("初始化报告生成器...")
+                reports_dir = os.path.join(self.config["general"]["data_dir"], "reports")
+                templates_dir = os.path.join(os.path.dirname(__file__), '../templates')
+                self.report_generator = ReportGenerator(
+                    output_dir=reports_dir,
+                    template_dir=templates_dir
+                )
+            
+            # 系统状态
+            self.running = False
+            logger.info("SuriVisor系统初始化完成")
+
+        except Exception as e:
+            logger.error(f"初始化组件失败: {e}")
 
     def load_config(self, config_file):
         """
@@ -255,27 +271,7 @@ class SuriVisor:
         Returns:
             bool: 初始化是否成功
         """
-        try:
-            # 初始化流量分析器
-            if self.config["analysis"]["traffic_analysis_enabled"]:
-                logger.info("初始化流量分析器...")
-                attack_patterns_file = os.path.join(self.config["general"]["data_dir"], "attack_patterns.json")
-                self.traffic_analyzer = TrafficAnalyzer(attack_patterns_file=attack_patterns_file)
-            
-            # 初始化事件检测器
-            if self.config["analysis"]["anomaly_detection_enabled"]:
-                logger.info("初始化异常检测器...")
-                event_config_file = os.path.join(os.path.dirname(__file__), '../config/anomaly_detection.json')
-                self.event_detector = EventDetector(
-                    config_file=event_config_file,
-                    event_callback=self.handle_event
-                )
-            
-            logger.info("所有在线组件初始化完成")
-            return True
-        except Exception as e:
-            logger.error(f"初始化组件失败: {e}")
-            return False
+        
     
     def _get_alert_priority(self, alert_info):
         """
@@ -498,10 +494,6 @@ class SuriVisor:
             logger.warning("系统已经在运行")
             return False
         
-        # 初始化组件
-        if not self.initialize_online_components():
-            return False
-        
         # 根据参数决定是否启动Suricata
         if start_suricata and self.suricata_manager:
             logger.info("正在启动Suricata进程...")
@@ -623,8 +615,8 @@ class SuriVisor:
             log_dir = os.path.join(self.config["general"]["data_dir"], "logs/suricata")
             
             print("正在使用Suricata分析PCAP文件...")
-            # 调用进程管理器的analyze_pcap方法进行分析
-            result = self.suricata_manager.analyze_pcap(pcap_file, log_dir)
+            # 调用流量分析器的analyze_pcap方法进行分析
+            result = self.traffic_analyzer.analyze_pcap(pcap_file, self.suricata_manager, log_dir)
             
             if not result["success"]:
                 print(f"Suricata分析失败: {result.get('error', '未知错误')}")
