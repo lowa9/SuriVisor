@@ -11,7 +11,7 @@ services:
       - xpack.security.http.ssl.enabled=false
       - xpack.security.transport.ssl.enabled=false
     volumes:
-      - ./etc/elasticsearch:/usr/share/elasticsearch/config
+    #   - ./etc/elasticsearch:/usr/share/elasticsearch/config
       - es_data:/usr/share/elasticsearch/data
     ports:
       - "9200:9200"
