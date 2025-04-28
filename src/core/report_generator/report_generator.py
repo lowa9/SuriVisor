@@ -153,13 +153,14 @@ class ReportGenerator:
         """
         # 添加报告元数据
         # 使用传入的数据和元数据
+        # 使用传入的数据和元数据
         report_data = {
-            "metadata": options.get("metadata", {
+            "metadata": data.get("metadata", {
                 "generated_at": datetime.now().isoformat(),
                 "generator": "SuriVisor Report Generator",
-                "version": "1.0"
+                "version": "1.1.0"
             }),
-            "data": data,
+            "data": data.get("data", {}),
             "options": options
         }
         
@@ -191,12 +192,12 @@ class ReportGenerator:
             
             # 使用传入的数据和元数据
             report_data = {
-                "metadata": options.get("metadata", {
+                "metadata": data.get("metadata", {
                     "generated_at": datetime.now().isoformat(),
                     "generator": "SuriVisor Report Generator",
-                    "version": "1.0"
+                    "version": "1.1.0"
                 }),
-                "data": data,
+                "data": data.get("data", {}),
                 "options": options
             }
             

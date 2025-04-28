@@ -60,15 +60,47 @@ class EventHandler:
         logger.info(f"处理告警事件: {event}")
         
         try:
-            # 获取告警详情
-            alert_data = event.data
+            # 导入告警工具模块
+            from src.utils.alert_utils import AlertStructure
+            
+            # 获取告警详情并标准化
+            original_alert_data = event.data
+            
+            # 检查是否已经是标准格式
+            if "id" in original_alert_data and "severity" in original_alert_data and isinstance(original_alert_data.get("severity"), str):
+                # 已经是标准格式
+                alert_data = original_alert_data
+            else:
+                # 转换为标准格式
+                if "alert" in original_alert_data:
+                    # 可能是Suricata格式
+                    alert_data = AlertStructure.from_suricata_alert(original_alert_data)
+                else:
+                    # 其他格式，尝试创建标准告警
+                    alert_data = AlertStructure.create_alert(
+                        signature=original_alert_data.get('signature', '未知告警'),
+                        severity=original_alert_data.get('severity', 'medium') if isinstance(original_alert_data.get('severity'), str) else 'medium',
+                        category=original_alert_data.get('category', '未分类'),
+                        source_ip=original_alert_data.get('source_ip', original_alert_data.get('src_ip', '')),
+                        source_port=str(original_alert_data.get('source_port', original_alert_data.get('src_port', ''))),
+                        destination_ip=original_alert_data.get('destination_ip', original_alert_data.get('dest_ip', '')),
+                        destination_port=str(original_alert_data.get('destination_port', original_alert_data.get('dest_port', ''))),
+                        protocol=original_alert_data.get('protocol', original_alert_data.get('proto', '')),
+                        description=original_alert_data.get('description', ''),
+                        details={"original": original_alert_data}
+                    )
+            
+            # 更新事件数据为标准格式
+            event.data = alert_data
+            
+            # 获取告警信息
             alert_signature = alert_data.get('signature', '未知告警')
-            alert_severity = alert_data.get('severity', 0)
+            alert_severity = alert_data.get('severity', 'medium')
             alert_source = alert_data.get('source_ip', '未知源IP')
-            alert_dest = alert_data.get('dest_ip', '未知目标IP')
+            alert_dest = alert_data.get('destination_ip', '未知目标IP')
             
             # 根据告警严重程度执行不同操作
-            if alert_severity <= 1:  # 高危告警
+            if alert_severity in ['critical', 'high']:  # 高危告警
                 logger.warning(f"高危告警: {alert_signature}, 源IP: {alert_source}, 目标IP: {alert_dest}")
                 # TODO: 实现高危告警的处理逻辑，如发送邮件通知、触发自动响应等
             else:  # 低危告警
@@ -91,11 +123,20 @@ class EventHandler:
         logger.info(f"处理异常事件: {event}")
         
         try:
+            # 导入告警工具模块
+            from src.utils.alert_utils import AlertStructure
+            
             # 获取异常详情
-            anomaly_data = event.data
-            anomaly_type = anomaly_data.get('type', '未知异常')
-            anomaly_confidence = anomaly_data.get('confidence', 0)
-            anomaly_source = anomaly_data.get('source', '未知来源')
+            original_anomaly_data = event.data
+            anomaly_type = original_anomaly_data.get('type', '未知异常')
+            anomaly_confidence = original_anomaly_data.get('confidence', 0)
+            anomaly_source = original_anomaly_data.get('source', '未知来源')
+            
+            # 将异常事件转换为标准告警格式
+            alert_data = AlertStructure.from_anomaly_event(original_anomaly_data)
+            
+            # 更新事件数据为标准格式
+            event.data = alert_data
             
             # 根据异常类型和置信度执行不同操作
             if anomaly_confidence >= 0.8:  # 高置信度异常
@@ -185,14 +226,25 @@ class EventHandler:
             event (Event): 告警事件对象
         """
         try:
+            # 导入告警工具模块
+            from src.utils.alert_utils import AlertStructure
+            
             # 确保目录存在
             alerts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data/alerts'))
             os.makedirs(alerts_dir, exist_ok=True)
             
-            # 保存到文件
+            # 使用AlertStructure保存告警
+            if hasattr(event, 'data') and isinstance(event.data, dict):
+                # 保存标准化的告警数据
+                file_path = AlertStructure.save_alert_to_file(event.data, alerts_dir)
+                if file_path:
+                    logger.debug(f"告警事件已保存到文件: {file_path}")
+                    return
+            
+            # 如果上面的方法失败，使用原始方法保存
             alert_file = os.path.join(alerts_dir, f"alert_{event.timestamp}.json")
-            with open(alert_file, 'w') as f:
-                json.dump(event.to_dict(), f, indent=2)
+            with open(alert_file, 'w', encoding='utf-8') as f:
+                json.dump(event.to_dict(), f, indent=2, ensure_ascii=False)
                 
             logger.debug(f"告警事件已保存到文件: {alert_file}")
         except Exception as e:
@@ -206,14 +258,25 @@ class EventHandler:
             event (Event): 异常事件对象
         """
         try:
+            # 导入告警工具模块
+            from src.utils.alert_utils import AlertStructure
+            
             # 确保目录存在
             anomalies_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data/anomalies'))
             os.makedirs(anomalies_dir, exist_ok=True)
             
-            # 保存到文件
+            # 使用AlertStructure保存告警
+            if hasattr(event, 'data') and isinstance(event.data, dict):
+                # 保存标准化的告警数据
+                file_path = AlertStructure.save_alert_to_file(event.data, anomalies_dir)
+                if file_path:
+                    logger.debug(f"异常事件已保存到文件: {file_path}")
+                    return
+            
+            # 如果上面的方法失败，使用原始方法保存
             anomaly_file = os.path.join(anomalies_dir, f"anomaly_{event.timestamp}.json")
-            with open(anomaly_file, 'w') as f:
-                json.dump(event.to_dict(), f, indent=2)
+            with open(anomaly_file, 'w', encoding='utf-8') as f:
+                json.dump(event.to_dict(), f, indent=2, ensure_ascii=False)
                 
             logger.debug(f"异常事件已保存到文件: {anomaly_file}")
         except Exception as e:

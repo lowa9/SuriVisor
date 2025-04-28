@@ -196,7 +196,7 @@ class SuricataProcessManager:
             bool: 停止是否成功
         """
         if not self.running:
-            logger.debug('Suricata进程未在运行')
+            #logger.debug('Suricata进程未在运行')
             return False
         
         try:

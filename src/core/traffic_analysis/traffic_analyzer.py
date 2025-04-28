@@ -430,25 +430,57 @@ class TrafficAnalyzer:
         获取分析统计信息
         
         Returns:
-            dict: 统计信息
+            dict: 统计信息，符合统一的结果数据结构
         """
+        # 导入ResultStructure，确保只在需要时导入
+        from src.utils.result_utils import ResultStructure
+        
+        # 创建基础结果数据结构
+        result = ResultStructure.create_base_result()
+        result["success"] = True
+        
         # 计算各类型流量的数量
         type_counts = defaultdict(int)
-        for result in self.classified_flows.values():
-            flow_type = result.get("type", "unknown")
+        for flow_result in self.classified_flows.values():
+            flow_type = flow_result.get("type", "unknown")
             type_counts[flow_type] += 1
         
         # 计算总体统计信息
         total_flows = len(self.classified_flows)
         attack_flows = sum(count for flow_type, count in type_counts.items() if flow_type != "normal")
         
-        return {
-            "total_flows": total_flows,
+        # 填充流量统计信息
+        result["traffic_stats"] = {
+            "total_packets": getattr(self, 'total_packets', 0),
+            "total_bytes": getattr(self, 'total_bytes', 0),
+            "packet_rate": getattr(self, 'packet_rate', 0.0),
+            "byte_rate": getattr(self, 'byte_rate', 0.0),
+            "flow_count": total_flows,
+            "protocol_distribution": getattr(self, 'protocol_distribution', {}),
+            "port_distribution": getattr(self, 'port_distribution', {}),
             "attack_flows": attack_flows,
             "normal_flows": type_counts.get("normal", 0),
             "attack_types": {k: v for k, v in type_counts.items() if k != "normal"},
             "attack_ratio": attack_flows / total_flows if total_flows > 0 else 0
         }
+        
+        # 填充网络性能指标（如果有）
+        if hasattr(self, 'network_metrics') and self.network_metrics:
+            result["network_metrics"] = self.network_metrics
+        
+        # 填充TCP健康度指标（如果有）
+        if hasattr(self, 'tcp_health_metrics') and self.tcp_health_metrics:
+            result["tcp_health"] = self.tcp_health_metrics
+        
+        # 填充告警信息（如果有）
+        if hasattr(self, 'detected_alerts') and self.detected_alerts:
+            result["alerts"] = self.detected_alerts
+            result["alert_count"] = len(self.detected_alerts)
+        
+        # 添加结果摘要
+        result["summary"] = f"流量分析完成，共分析{total_flows}个流，其中攻击流{attack_flows}个，正常流{type_counts.get('normal', 0)}个"
+        
+        return result
     
     def analyze_pcap(self, pcap_file: str, suricata_manager: SuricataProcessManager, log_dir: str = None, callback: Optional[Callable] = None) -> Dict[str, Any]:
         """
@@ -494,8 +526,10 @@ class TrafficAnalyzer:
             
             # 分析结果处理
             eve_json = os.path.join(output_log_dir, "eve.json")
-            result = {"success": True, "alerts": [], "alert_count": 0}
-            
+            # result = {"success": True, "alerts": [], "alert_count": 0}
+            from src.utils.result_utils import ResultStructure
+            result = ResultStructure.create_base_result()
+
             # 检查eve.json文件是否存在，如果存在则记录当前行数
             initial_line_count = 0
             if os.path.exists(eve_json):
@@ -525,15 +559,6 @@ class TrafficAnalyzer:
             
             # 分析完成后处理结果
             try:
-                # 初始化数据包统计信息
-                result["total_packets"] = 0
-                result["reassembled_packets"] = 0
-                result["lost_packets"] = 0
-                result["total_bytes"] = 0
-                result["tcp_flows"] = 0
-                result["udp_flows"] = 0
-                result["analyzed_flows"] = 0
-
                 # 读取eve.json文件，只处理新增的行
                 with open(eve_json, 'r') as f:
                     # 跳过已有的行
@@ -550,71 +575,49 @@ class TrafficAnalyzer:
                             
                             # 处理告警事件
                             if event.get('event_type') == 'alert':
-                                alert_info = {
-                                    "signature": event.get('alert', {}).get('signature', '未知告警'),
-                                    "severity": event.get('alert', {}).get('severity', '未知'),
-                                    "src_ip": event.get('src_ip', '未知'),
-                                    "src_port": event.get('src_port', '未知'),
-                                    "dest_ip": event.get('dest_ip', '未知'),
-                                    "dest_port": event.get('dest_port', '未知'),
-                                    "proto": event.get('proto', '未知'),
-                                    "timestamp": event.get('timestamp', ''),
-                                    "category": event.get('alert', {}).get('category', ''),
-                                    "action": event.get('alert', {}).get('action', '')
-                                }
+                                # 导入告警工具模块
+                                from src.utils.alert_utils import AlertStructure
+                                
+                                # 将Suricata告警转换为标准格式
+                                alert_data = AlertStructure.from_suricata_alert(event)
                                 
                                 # 添加到告警列表
-                                result["alerts"].append(alert_info)
+                                result["alerts"].append(alert_data)
                                 result["alert_count"] += 1
                                 
                                 # 如果提供了回调函数，调用它
                                 if callback and callable(callback):
-                                    callback(alert_info)
+                                    callback(alert_data)
                                     
-                                logger.info(f"检测到告警: {alert_info['signature']}")
+                                logger.info(f"检测到告警: {alert_data['signature']}")
                             
                             # 处理统计事件，提取数据包信息
                             elif event.get('event_type') == 'stats':
                                 stats = event.get('stats', {})
-                                decoder = stats.get('decoder', {})
-                                flow = stats.get('flow', {})
-                                defrag = stats.get('defrag', {})
+                                stats_decoder = stats.get('decoder', {})
+                                stats_flow = stats.get('flow', {})
                                 
                                 # 提取总数据包数
-                                if 'pkts' in decoder:
-                                    result["total_packets"] = decoder['pkts']
+                                if 'pkts' in stats_decoder:
+                                    result["traffic_stats"]["total_packets"] = stats_decoder['pkts']
                                 
                                 # 提取总字节数
-                                if 'bytes' in decoder:
-                                    result["total_bytes"] = decoder['bytes']
+                                if 'bytes' in stats_decoder:
+                                    result["traffic_stats"]["total_bytes"] = stats_decoder['bytes']
 
                                 # 提取所有的流量数
-                                if 'total' in flow:
-                                    result["analyzed_flows"] = flow['total']
+                                if 'total' in stats_flow:
+                                    result["traffic_stats"]["flow_count"] = stats_flow['total']
 
                                 # 提取分析的tcp流量数
-                                if 'tcp' in flow:
-                                    result["tcp_flows"] = flow['tcp']
+                                if 'tcp' in stats_flow:
+                                    result["traffic_stats"]["tcp_flow_count"] = stats_flow['tcp']
 
                                 # 提取分析的udp流量数
-                                if 'udp' in flow:
-                                    result["udp_flows"] = flow['udp']
+                                if 'udp' in stats_flow:
+                                    result["traffic_stats"]["udp_flow_count"] = stats_flow['udp']                    
                                 
-                                # 提取IPv4和IPv6重组数据包数
-                                ipv4_reassembled = defrag.get('ipv4', {}).get('reassembled', 0)
-                                ipv6_reassembled = defrag.get('ipv6', {}).get('reassembled', 0)
-                                result["reassembled_packets"] = ipv4_reassembled + ipv6_reassembled
-                                
-                                # 计算丢失的数据包数（简单估算：总数据包 - 重组数据包）
-                                # 注意：这是一个简化的计算，实际丢失数据包可能需要更复杂的逻辑
-                                fragments_ipv4 = defrag.get('ipv4', {}).get('fragments', 0)
-                                fragments_ipv6 = defrag.get('ipv6', {}).get('fragments', 0)
-                                total_fragments = fragments_ipv4 + fragments_ipv6
-                                
-                                if total_fragments > result["reassembled_packets"]:
-                                    result["lost_packets"] = total_fragments - result["reassembled_packets"]
-                                
-                                logger.info(f"提取到数据包统计信息: 总数据包={result['total_packets']}, 重组数据包={result['reassembled_packets']}, 丢失数据包={result['lost_packets']}")
+                                logger.info(f"提取到数据包统计信息: 总数据包={result['traffic_stats']['total_packets']}")
                         except json.JSONDecodeError:
                             logger.warning(f"无法解析JSON行: {line}")
                             continue
@@ -623,7 +626,7 @@ class TrafficAnalyzer:
                 return {"success": False, "error": str(e)}
             
             # 如果从eve.json中没有获取到数据包统计信息，尝试从suricata.log中获取
-            if result["total_packets"] == 0:
+            if result["traffic_stats"]["total_packets"] == 0:
                 suricata_log = os.path.join(output_log_dir, "suricata.log")
                 if os.path.exists(suricata_log):
                     try:
@@ -635,8 +638,8 @@ class TrafficAnalyzer:
                                     parts = line.split()
                                     for i, part in enumerate(parts):
                                         if part == "packets,":
-                                            result["total_packets"] = int(parts[i-1])
-                                            logger.info(f"从suricata.log中提取到总数据包数: {result['total_packets']}")
+                                            result["traffic_stats"]["total_packets"] = int(parts[i-1])
+                                            logger.info(f"从suricata.log中提取到总数据包数: {result['traffic_stats']['total_packets']}")
                                             break
                     except Exception as e:
                         logger.warning(f"从suricata.log提取数据包统计信息时出错: {e}")
@@ -645,16 +648,11 @@ class TrafficAnalyzer:
             result["log_file"] = eve_json
             
             # 确保数据包统计信息存在于结果中
-            if "total_packets" not in result or result["total_packets"] == 0:
+            if "total_packets" not in result['traffic_stats'] or result["traffic_stats"]["total_packets"] == 0:
                 # 如果无法从日志中获取，尝试从pcap文件名中提取（如果文件名中包含数据包数量信息）
                 logger.warning("无法从日志中获取数据包统计信息，使用默认值")
-            
-            # 确保所有必要的字段都存在
-            if "reassembled_packets" not in result:
-                result["reassembled_packets"] = 0
-            if "lost_packets" not in result:
-                result["lost_packets"] = 0
-            
+            result["success"] = True
+
             return result
             
         except Exception as e:
@@ -770,87 +768,3 @@ class TrafficAnalyzer:
                 return False # 生成或保存失败
             return result # 返回包含错误信息的字典
 
-    def analyze_flow(self, flow_data):
-        """兼容性方法，处理单条流数据"""
-        if not isinstance(flow_data, dict) or 'packets' not in flow_data:
-            logger.error("Invalid flow data format")
-            return {
-                "type": "unknown",
-                "confidence": 0,
-                "details": {"error": "Invalid data format"}
-            }
-        
-        # 生成临时flow_id
-        first_packet = flow_data.get('packets', [{}])[0]
-        flow_id = f"temp_{first_packet.get('src_ip','unknown')}_{first_packet.get('dst_ip','unknown')}_{time.time()}"
-        
-        # 分析单条流
-        result = self.analyze_traffic({flow_id: flow_data})
-        return result[flow_id]['classification']
-
-# 测试代码
-if __name__ == "__main__":
-    # 创建流量分析器实例
-    analyzer = TrafficAnalyzer()
-    
-    # 模拟端口扫描流量
-    port_scan_packets = []
-    for i in range(100):
-        packet = {
-            "timestamp": time.time() + i * 0.1,
-            "src_ip": "192.168.1.100",
-            "dst_ip": "192.168.1.1",
-            "src_port": 12345,
-            "dst_port": 1000 + i,  # 不同的目标端口
-            "protocol": "TCP",
-            "size": 60,
-            "flags": {"syn": True, "ack": False}
-        }
-        port_scan_packets.append(packet)
-    
-    # 模拟正常流量
-    normal_packets = []
-    for i in range(100):
-        packet = {
-            "timestamp": time.time() + i * 1.0,
-            "src_ip": "192.168.1.101",
-            "dst_ip": "192.168.1.2",
-            "src_port": 54321,
-            "dst_port": 80,  # 固定的目标端口
-            "protocol": "TCP",
-            "size": 1024,
-            "flags": {"syn": i < 1, "ack": i >= 1}
-        }
-        normal_packets.append(packet)
-    
-    # 分析流量
-    flows = {
-        "port_scan_flow": {"packets": port_scan_packets},
-        "normal_flow": {"packets": normal_packets}
-    }
-    
-    results = analyzer.analyze_traffic(flows)
-    
-    # 打印结果
-    for flow_id, result in results.items():
-        print(f"\n流 {flow_id} 的分类结果:")
-        classification = result["classification"]
-        print(f"类型: {classification['type']}")
-        print(f"置信度: {classification['confidence']:.2f}")
-        
-        if "details" in classification and "description" in classification["details"]:
-            print(f"描述: {classification['details']['description']}")
-    
-    # 打印统计信息
-    stats = analyzer.get_statistics()
-    print("\n统计信息:")
-    print(f"总流量数: {stats['total_flows']}")
-    print(f"攻击流量数: {stats['attack_flows']}")
-    print(f"正常流量数: {stats['normal_flows']}")
-    print(f"攻击类型分布: {stats['attack_types']}")
-    print(f"攻击比例: {stats['attack_ratio']:.2%}")
-    
-    # 生成报告
-    report = analyzer.generate_report()
-    print("\n分析报告:")
-    print(report)

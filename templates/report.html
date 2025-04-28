@@ -199,41 +199,64 @@
             </p>
             
             <div class="stat-grid">
-                {% if data.packet_reassembly %}
+                {% if data.traffic_stats %}
                 <div class="stat-card">
                     <div class="stat-label">总数据包数</div>
-                    <div class="stat-value">{{ data.packet_reassembly.total_packets }}</div>
+                    <div class="stat-value">{{ data.traffic_stats.total_packets }}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">总字节数</div>
-                    <div class="stat-value">{{ data.packet_reassembly.total_bytes }}</div>
+                    <div class="stat-value">{{ data.traffic_stats.total_bytes }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">重组IP分片包数</div>
-                    <div class="stat-value">{{ data.packet_reassembly.reassembled_packets }}</div>
+                    <div class="stat-label">数据包速率</div>
+                    <div class="stat-value">{{ data.traffic_stats.packet_rate }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">丢失IP分片包数</div>
-                    <div class="stat-value">{{ data.packet_reassembly.lost_packets }}</div>
+                    <div class="stat-label">流数量</div>
+                    <div class="stat-value">{{ data.traffic_stats.flow_count }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">tcp流数量</div>
+                    <div class="stat-value">{{ data.traffic_stats.tcp_flow_count }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">udp流数量</div>
+                    <div class="stat-value">{{ data.traffic_stats.udp_flow_count }}</div>
                 </div>
                 {% endif %}
                 
-                {% if data.traffic_analysis %}
+                {% if data.network_metrics %}
                 <div class="stat-card">
-                    <div class="stat-label">分析流总数量</div>
-                    <div class="stat-value">{{ data.traffic_analysis.analyzed_flows }}</div>
+                    <div class="stat-label">平均往返时间</div>
+                    <div class="stat-value">{{ data.network_metrics.avg_rtt }} ms</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">分析tcp流数量</div>
-                    <div class="stat-value">{{ data.traffic_analysis.tcp_flows }}</div>
+                    <div class="stat-label">丢包率</div>
+                    <div class="stat-value">{{ data.network_metrics.packet_loss_ratio }}%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">分析udp流数量</div>
-                    <div class="stat-value">{{ data.traffic_analysis.udp_flows }}</div>
+                    <div class="stat-label">抖动</div>
+                    <div class="stat-value">{{ data.network_metrics.jitter }} ms</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">检测到的攻击</div>
-                    <div class="stat-value">{{ data.traffic_analysis.detected_attacks }}</div>
+                    <div class="stat-label">带宽利用率</div>
+                    <div class="stat-value">{{ data.network_metrics.bandwidth_utilization }}%</div>
+                </div>
+                {% endif %}
+                
+                {% if data.tcp_health %}
+                <div class="stat-card">
+                    <div class="stat-label">重传比例</div>
+                    <div class="stat-value">{{ data.tcp_health.retransmission_ratio }}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">乱序比例</div>
+                    <div class="stat-value">{{ data.tcp_health.out_of_order_ratio }}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">零窗口计数</div>
+                    <div class="stat-value">{{ data.tcp_health.zero_window_count }}</div>
                 </div>
                 {% endif %}
                 
@@ -248,125 +271,150 @@
         
         <!-- 数据包重组分析部分已移至系统状态摘要中 -->
         
-        {% if data.traffic_analysis %}
-        <h2>流量分析结果</h2>
+        {% if data.alerts %}
+        <h2>告警分析结果</h2>
         
-        {% if data.traffic_analysis.detected_attacks > 0 %}
-        <h3>检测到的攻击</h3>
+        {% if data.alert_stats.total > 0 %}
+        <h3>检测到的告警</h3>
         <div class="alert alert-danger">
-            <p><strong>警告:</strong> 检测到 {{ data.traffic_analysis.detected_attacks }} 次潜在攻击行为！</p>
+            <p><strong>警告:</strong> 检测到 {{ data.alert_stats.total }} 个告警！</p>
         </div>
         
+        <h3>告警严重程度分布</h3>
         <table>
             <tr>
-                <th>序号</th>
-                <th>攻击类型</th>
-                <th>置信度</th>
-                <th>源IP</th>
-                <th>源port</th>
-                <th>目标IP</th>
-                <th>目标port</th>
-                <th>协议</th>
-                <th>时间</th>
+                <th>严重程度</th>
+                <th>数量</th>
             </tr>
-            {% for attack in data.traffic_analysis.attacks %}
+            {% for severity, count in data.alert_stats.by_severity.items() %}
             <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ attack.type }}</td>
-                <td>{{ attack.confidence }}%</td>
-                <td>{{ attack.source_ip }}</td>
-                <td>{{ attack.source_port }}</td>
-                <td>{{ attack.target_ip }}</td>
-                <td>{{ attack.target_port }}</td>
-                <td>{{ attack.protocol }}</td>
-                <td>{{ attack.timestamp }}</td>
+                <td>{{ severity }}</td>
+                <td>{{ count }}</td>
             </tr>
             {% endfor %}
         </table>
-        {% endif %}
-        {% endif %}
         
-        {% if data.anomaly_detection %}
-        <h2>异常检测结果</h2>
+        <h3>告警类别分布</h3>
+        <table>
+            <tr>
+                <th>类别</th>
+                <th>数量</th>
+            </tr>
+            {% for category, count in data.alert_stats.by_category.items() %}
+            <tr>
+                <td>{{ category }}</td>
+                <td>{{ count }}</td>
+            </tr>
+            {% endfor %}
+        </table>
         
-        {% if data.anomaly_detection.total_anomalies > 0 %}
-        <div class="alert alert-warning">
-            <p><strong>注意:</strong> 检测到 {{ data.anomaly_detection.total_anomalies }} 个网络异常！</p>
-        </div>
-        
+        <h3>告警详情</h3>
         <table>
             <tr>
                 <th>序号</th>
-                <th>异常类型</th>
-                <th>异常值</th>
-                <th>阈值</th>
+                <th>签名</th>
                 <th>严重程度</th>
+                <th>类别</th>
+                <th>源IP</th>
+                <th>源端口</th>
+                <th>目标IP</th>
+                <th>目标端口</th>
+                <th>协议</th>
                 <th>时间</th>
             </tr>
-            {% for anomaly in data.anomaly_detection.anomalies %}
+            {% for alert in data.alerts %}
             <tr>
                 <td>{{ loop.index }}</td>
-                <td>{{ anomaly.description }}</td>
-                <td>{{ anomaly.value }}</td>
-                <td>{{ anomaly.threshold }}</td>
-                <td>{{ anomaly.severity }}</td>
-                <td>{{ anomaly.datetime }}</td>
+                <td>{{ alert.signature }}</td>
+                <td>{{ alert.severity }}</td>
+                <td>{{ alert.category }}</td>
+                <td>{{ alert.source_ip }}</td>
+                <td>{{ alert.source_port }}</td>
+                <td>{{ alert.destination_ip }}</td>
+                <td>{{ alert.destination_port }}</td>
+                <td>{{ alert.protocol }}</td>
+                <td>{{ alert.datetime }}</td>
             </tr>
             {% endfor %}
         </table>
         {% else %}
         <div class="alert alert-info">
-            <p><strong>信息:</strong> 未检测到网络异常。</p>
+            <p><strong>信息:</strong> 未检测到告警。</p>
         </div>
         {% endif %}
         {% endif %}
         
-        {% if data.event_manager %}
-        <h2>事件管理统计</h2>
+        <h2>网络性能指标</h2>
+        
         <table>
             <tr>
-                <th>指标</th>
+                <th>指标名称</th>
                 <th>值</th>
             </tr>
+            {% if data.network_metrics %}
             <tr>
-                <td>接收事件数</td>
-                <td>{{ data.event_manager.events_received }}</td>
+                <td>平均往返时间</td>
+                <td>{{ data.network_metrics.avg_rtt }} ms</td>
             </tr>
             <tr>
-                <td>处理事件数</td>
-                <td>{{ data.event_manager.events_processed }}</td>
+                <td>丢包率</td>
+                <td>{{ data.network_metrics.packet_loss_ratio }}%</td>
             </tr>
             <tr>
-                <td>丢弃事件数</td>
-                <td>{{ data.event_manager.events_dropped }}</td>
+                <td>抖动</td>
+                <td>{{ data.network_metrics.jitter }} ms</td>
             </tr>
             <tr>
-                <td>平均处理时间</td>
-                <td>{{ data.event_manager.avg_processing_time }} 秒</td>
+                <td>带宽利用率</td>
+                <td>{{ data.network_metrics.bandwidth_utilization }}%</td>
             </tr>
             <tr>
-                <td>当前队列大小</td>
-                <td>{{ data.event_manager.queue_size }}</td>
+                <td>连接失败率</td>
+                <td>{{ data.network_metrics.connection_failure_rate }}%</td>
             </tr>
-            <tr>
-                <td>队列占用率</td>
-                <td>{{ data.event_manager.queue_full_percentage }}%</td>
-            </tr>
+            {% endif %}
         </table>
         
-        <h3>事件类型分布</h3>
+        <h2>TCP流健康度指标</h2>
+        
         <table>
             <tr>
-                <th>事件类型</th>
-                <th>数量</th>
+                <th>指标名称</th>
+                <th>值</th>
             </tr>
-            {% for type, count in data.event_manager.events_by_type.items() %}
+            {% if data.tcp_health %}
             <tr>
-                <td>{{ type }}</td>
-                <td>{{ count }}</td>
+                <td>重传比例</td>
+                <td>{{ data.tcp_health.retransmission_ratio }}%</td>
             </tr>
-            {% endfor %}
+            <tr>
+                <td>乱序比例</td>
+                <td>{{ data.tcp_health.out_of_order_ratio }}%</td>
+            </tr>
+            <tr>
+                <td>重复ACK比例</td>
+                <td>{{ data.tcp_health.duplicate_ack_ratio }}%</td>
+            </tr>
+            <tr>
+                <td>零窗口计数</td>
+                <td>{{ data.tcp_health.zero_window_count }}</td>
+            </tr>
+            <tr>
+                <td>平均窗口大小</td>
+                <td>{{ data.tcp_health.avg_window_size }}</td>
+            </tr>
+            <tr>
+                <td>平均重组时间</td>
+                <td>{{ data.tcp_health.avg_reassembly_time }} ms</td>
+            </tr>
+            {% endif %}
         </table>
+        
+        {% if data.summary %}
+        <h2>分析结果摘要</h2>
+        <div class="summary-box">
+            <p>{{ data.summary }}</p>
+        </div>
         {% endif %}
         
         <footer>

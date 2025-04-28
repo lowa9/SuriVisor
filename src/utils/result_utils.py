@@ -53,6 +53,8 @@ class ResultStructure:
                 "packet_rate": 0.0,         # 数据包速率(包/秒)
                 "byte_rate": 0.0,           # 字节速率(字节/秒)
                 "flow_count": 0,            # 流数量
+                "tcp_flow_count": 0,         # TCP流数量
+                "udp_flow_count": 0,         # UDP流数量
                 "protocol_distribution": {}, # 协议分布
                 "port_distribution": {},    # 端口分布
             },
@@ -92,7 +94,7 @@ class ResultStructure:
         }
     
     @staticmethod
-    def create_report_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    def create_report_result(result: Dict[str, Any], metadata: {}) -> Dict[str, Any]:
         """
         基于分析结果创建报告结果数据结构
         
@@ -102,12 +104,6 @@ class ResultStructure:
         Returns:
             Dict[str, Any]: 报告结果数据结构
         """
-        # 创建报告元数据
-        metadata = {
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "generator": "SuriVisor",
-            "version": "1.1.0",
-        }
         
         # 创建报告数据结构
         report_result = {

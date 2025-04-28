@@ -30,8 +30,8 @@ class AlertStructure:
     
     @staticmethod
     def create_alert(signature: str, severity: str = "medium", category: str = "未分类",
-                    source_ip: str = "", source_port: str = "", 
-                    destination_ip: str = "", destination_port: str = "",
+                    src_ip: str = "", src_port: str = "", 
+                    dest_ip: str = "", dest_port: str = "",
                     protocol: str = "", action: str = "alert", 
                     description: str = "", details: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -41,10 +41,10 @@ class AlertStructure:
             signature (str): 告警签名/名称
             severity (str): 严重程度，可选值: "critical", "high", "medium", "low", "info"
             category (str): 告警类别
-            source_ip (str): 源IP地址
-            source_port (str): 源端口
-            destination_ip (str): 目标IP地址
-            destination_port (str): 目标端口
+            src_ip (str): 源IP地址
+            src_port (str): 源端口
+            dest_ip (str): 目标IP地址
+            dest_port (str): 目标端口
             protocol (str): 协议
             action (str): 动作，如"alert"、"block"等
             description (str): 告警描述
@@ -57,7 +57,7 @@ class AlertStructure:
         formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # 生成唯一ID
-        alert_id = f"alert_{int(current_time * 1000)}_{hash(signature + source_ip + destination_ip)}"
+        alert_id = f"alert_{int(current_time * 1000)}_{hash(signature + src_ip + dest_ip)}"
         
         # 创建标准告警结构
         alert = {
@@ -68,10 +68,10 @@ class AlertStructure:
             "category": category,                # 告警类别
             "signature": signature,              # 告警签名/名称
             "description": description,          # 告警描述
-            "source_ip": source_ip,              # 源IP地址
-            "source_port": source_port,          # 源端口
-            "destination_ip": destination_ip,    # 目标IP地址
-            "destination_port": destination_port, # 目标端口
+            "src_ip": src_ip,              # 源IP地址
+            "src_port": src_port,          # 源端口
+            "dest_ip": dest_ip,    # 目标IP地址
+            "dest_port": dest_port, # 目标端口
             "protocol": protocol,                # 协议
             "action": action,                    # 动作
             "details": details or {},            # 其他详细信息
@@ -123,10 +123,10 @@ class AlertStructure:
                 signature=alert_data.get("signature", "未知告警"),
                 severity=severity,
                 category=alert_data.get("category", "未分类"),
-                source_ip=suricata_alert.get("src_ip", ""),
-                source_port=str(suricata_alert.get("src_port", "")),
-                destination_ip=suricata_alert.get("dest_ip", ""),
-                destination_port=str(suricata_alert.get("dest_port", "")),
+                src_ip=suricata_alert.get("src_ip", ""),
+                src_port=str(suricata_alert.get("src_port", "")),
+                dest_ip=suricata_alert.get("dest_ip", ""),
+                dest_port=str(suricata_alert.get("dest_port", "")),
                 protocol=suricata_alert.get("proto", ""),
                 action=alert_data.get("action", "alert"),
                 description=f"{alert_data.get('signature', '未知告警')} ({alert_data.get('category', '未分类')})",
@@ -164,7 +164,7 @@ class AlertStructure:
             # 提取异常信息
             anomaly_type = anomaly_data.get("type", "未知异常")
             confidence = anomaly_data.get("confidence", 0)
-            source = anomaly_data.get("source", "")
+            src = anomaly_data.get("src", "")
             
             # 根据置信度确定严重程度
             if confidence >= 0.9:
@@ -183,13 +183,13 @@ class AlertStructure:
                 signature=f"异常检测: {anomaly_type}",
                 severity=severity,
                 category="异常检测",
-                source_ip=anomaly_data.get("source_ip", ""),
-                destination_ip=anomaly_data.get("destination_ip", ""),
+                src_ip=anomaly_data.get("src_ip", ""),
+                dest_ip=anomaly_data.get("dest_ip", ""),
                 protocol=anomaly_data.get("protocol", ""),
                 description=f"检测到异常行为: {anomaly_type} (置信度: {confidence:.2f})",
                 details={
                     "confidence": confidence,
-                    "anomaly_source": source,
+                    "anomaly_src": src,
                     "original": anomaly_data
                 }
             )

@@ -230,6 +230,9 @@ def generate_system_report():
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
     try:
+        # 导入告警工具模块
+        from src.utils.alert_utils import AlertStructure
+        
         # 获取告警目录
         alerts_dir = os.path.join(os.path.dirname(__file__), '../data/alerts')
         os.makedirs(alerts_dir, exist_ok=True)
@@ -239,8 +242,30 @@ def get_alerts():
         for alert_file in os.listdir(alerts_dir):
             if alert_file.endswith('.json'):
                 try:
-                    with open(os.path.join(alerts_dir, alert_file), 'r') as f:
+                    with open(os.path.join(alerts_dir, alert_file), 'r', encoding='utf-8') as f:
                         alert_data = json.load(f)
+                        
+                        # 检查是否已经是标准格式
+                        if not ("id" in alert_data and "severity" in alert_data and isinstance(alert_data.get("severity"), str)):
+                            # 转换为标准格式
+                            if "alert" in alert_data:
+                                # 可能是Suricata格式
+                                alert_data = AlertStructure.from_suricata_alert(alert_data)
+                            else:
+                                # 其他格式，尝试创建标准告警
+                                alert_data = AlertStructure.create_alert(
+                                    signature=alert_data.get('signature', '未知告警'),
+                                    severity=alert_data.get('severity', 'medium') if isinstance(alert_data.get('severity'), str) else 'medium',
+                                    category=alert_data.get('category', '未分类'),
+                                    source_ip=alert_data.get('source_ip', alert_data.get('src_ip', '')),
+                                    source_port=str(alert_data.get('source_port', alert_data.get('src_port', ''))),
+                                    destination_ip=alert_data.get('destination_ip', alert_data.get('dest_ip', '')),
+                                    destination_port=str(alert_data.get('destination_port', alert_data.get('dest_port', ''))),
+                                    protocol=alert_data.get('protocol', alert_data.get('proto', '')),
+                                    description=alert_data.get('description', ''),
+                                    details={"original": alert_data}
+                                )
+                        
                         alerts.append(alert_data)
                 except Exception as e:
                     logger.error(f"读取告警文件 {alert_file} 时发生错误: {e}")
