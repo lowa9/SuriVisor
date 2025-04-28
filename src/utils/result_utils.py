@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+结果数据结构工具模块
+
+提供统一的结果数据结构定义和处理函数，包括：
+- 分析结果(result)数据结构定义
+- 报告结果(report_result)数据结构定义
+- 数据结构转换和处理函数
+"""
+
+import os
+import time
+import json
+import logging
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Union
+
+# 配置日志
+logger = logging.getLogger(__name__)
+
+
+class ResultStructure:
+    """
+    结果数据结构类
+    
+    提供统一的结果数据结构定义和处理函数
+    """
+    
+    @staticmethod
+    def create_base_result() -> Dict[str, Any]:
+        """
+        创建基础结果数据结构
+        
+        Returns:
+            Dict[str, Any]: 基础结果数据结构
+        """
+        return {
+            # 基础状态
+            "success": False,                # 分析是否成功
+            "timestamp": time.time(),       # 时间戳
+            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # 格式化时间
+            
+            # 告警信息
+            "alerts": [],                   # 告警列表
+            "alert_count": 0,               # 告警数量
+            
+            # 流量统计
+            "traffic_stats": {
+                "total_packets": 0,         # 总数据包数
+                "total_bytes": 0,           # 总字节数
+                "packet_rate": 0.0,         # 数据包速率(包/秒)
+                "byte_rate": 0.0,           # 字节速率(字节/秒)
+                "flow_count": 0,            # 流数量
+                "protocol_distribution": {}, # 协议分布
+                "port_distribution": {},    # 端口分布
+            },
+            
+            # 网络性能指标
+            "network_metrics": {
+                "avg_rtt": 0.0,             # 平均往返时间(ms)
+                "packet_loss_ratio": 0.0,   # 丢包率
+                "jitter": 0.0,              # 抖动(ms)
+                "bandwidth_utilization": 0.0, # 带宽利用率
+                "connection_failure_rate": 0.0, # 连接失败率
+            },
+            
+            # TCP流健康度指标
+            "tcp_health": {
+                "retransmission_ratio": 0.0, # 重传比例
+                "out_of_order_ratio": 0.0,  # 乱序比例
+                "duplicate_ack_ratio": 0.0, # 重复ACK比例
+                "zero_window_count": 0,     # 零窗口计数
+                "avg_window_size": 0.0,     # 平均窗口大小
+                "avg_reassembly_time": 0.0, # 平均重组时间
+            },
+            
+            # 日志路径
+            "log_paths": {
+                "suricata_log": "",        # Suricata日志路径
+                "alert_log": "",           # 告警日志路径
+                "traffic_log": "",         # 流量日志路径
+                "event_log": "",           # 事件日志路径
+            },
+            
+            # 分析结果摘要
+            "summary": "",                  # 结果摘要
+            
+            # 原始数据
+            "raw_data": None,               # 原始数据
+        }
+    
+    @staticmethod
+    def create_report_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        基于分析结果创建报告结果数据结构
+        
+        Args:
+            result (Dict[str, Any]): 分析结果数据
+            
+        Returns:
+            Dict[str, Any]: 报告结果数据结构
+        """
+        # 创建报告元数据
+        metadata = {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "generator": "SuriVisor",
+            "version": "1.1.0",
+        }
+        
+        # 创建报告数据结构
+        report_result = {
+            "metadata": metadata,
+            "data": {
+                "timestamp": result.get("timestamp", time.time()),
+                "datetime": result.get("datetime", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                "system_status": "running",  # 默认为运行中
+                
+                # 告警统计
+                "alert_stats": {
+                    "total": result.get("alert_count", 0),
+                    "by_severity": _count_alerts_by_severity(result.get("alerts", [])),
+                    "by_category": _count_alerts_by_category(result.get("alerts", [])),
+                },
+                
+                # 流量统计
+                "traffic_stats": result.get("traffic_stats", {}),
+                
+                # 网络性能指标
+                "network_metrics": result.get("network_metrics", {}),
+                
+                # TCP流健康度指标
+                "tcp_health": result.get("tcp_health", {}),
+                
+                # 告警详情
+                "alerts": _format_alerts_for_report(result.get("alerts", [])),
+                
+                # 分析结果摘要
+                "summary": result.get("summary", ""),
+            }
+        }
+        
+        return report_result
+
+
+def _count_alerts_by_severity(alerts: List[Dict[str, Any]]) -> Dict[str, int]:
+    """
+    按严重程度统计告警数量
+    
+    Args:
+        alerts (List[Dict[str, Any]]): 告警列表
+        
+    Returns:
+        Dict[str, int]: 按严重程度统计的告警数量
+    """
+    severity_counts = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0
+    }
+    
+    for alert in alerts:
+        severity = alert.get("severity", "medium")
+        if severity in severity_counts:
+            severity_counts[severity] += 1
+    
+    return severity_counts
+
+
+def _count_alerts_by_category(alerts: List[Dict[str, Any]]) -> Dict[str, int]:
+    """
+    按类别统计告警数量
+    
+    Args:
+        alerts (List[Dict[str, Any]]): 告警列表
+        
+    Returns:
+        Dict[str, int]: 按类别统计的告警数量
+    """
+    category_counts = {}
+    
+    for alert in alerts:
+        category = alert.get("category", "未分类")
+        if category not in category_counts:
+            category_counts[category] = 0
+        category_counts[category] += 1
+    
+    return category_counts
+
+
+def _format_alerts_for_report(alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    格式化告警数据用于报告显示
+    
+    Args:
+        alerts (List[Dict[str, Any]]): 原始告警列表
+        
+    Returns:
+        List[Dict[str, Any]]: 格式化后的告警列表
+    """
+    formatted_alerts = []
+    
+    for alert in alerts:
+        formatted_alert = {
+            "id": alert.get("id", ""),
+            "timestamp": alert.get("timestamp", 0),
+            "datetime": datetime.fromtimestamp(alert.get("timestamp", 0)).strftime("%Y-%m-%d %H:%M:%S") \
+                        if "timestamp" in alert else "",
+            "severity": alert.get("severity", "medium"),
+            "category": alert.get("category", "未分类"),
+            "signature": alert.get("signature", ""),
+            "description": alert.get("description", ""),
+            "source_ip": alert.get("source_ip", ""),
+            "source_port": alert.get("source_port", ""),
+            "destination_ip": alert.get("destination_ip", ""),
+            "destination_port": alert.get("destination_port", ""),
+            "protocol": alert.get("protocol", ""),
+            "action": alert.get("action", ""),
+            "details": alert.get("details", {}),
+        }
+        
+        formatted_alerts.append(formatted_alert)
+    
+    return formatted_alerts
