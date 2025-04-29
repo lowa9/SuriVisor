@@ -158,8 +158,7 @@ class SuriVisor:
             # 初始化流量分析器
             if self.config["analysis"]["traffic_analysis_enabled"]:
                 logger.info("初始化流量分析器...")
-                attack_patterns_file = os.path.join(self.config["general"]["data_dir"], "attack_patterns.json")
-                self.traffic_analyzer = TrafficAnalyzer(attack_patterns_file=attack_patterns_file)
+                self.traffic_analyzer = TrafficAnalyzer()
             
             # 初始化事件管理器
             if self.config["analysis"]["event_manager_enabled"]:
@@ -450,7 +449,8 @@ class SuriVisor:
         """
         # 导入ResultStructure，确保只在需要时导入
         from src.utils.result_utils import ResultStructure
-        
+        # 设置日志目录
+        out_log_dir = os.path.join(self.config["general"]["data_dir"], "logs/suricata")
         # 创建基础结果数据结构
         base_result = ResultStructure.create_base_result()
         base_result["success"] = True
@@ -458,6 +458,7 @@ class SuriVisor:
         
         # 添加流量分析器报告（已经使用标准格式）
         if self.traffic_analyzer:
+            self.traffic_analyzer.analyze_realtime_metrics(out_log_dir)
             traffic_stats = self.traffic_analyzer.get_statistics()
             # 整合流量分析数据
             base_result["traffic_stats"] = traffic_stats.get("traffic_stats", {})

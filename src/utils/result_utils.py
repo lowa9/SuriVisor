@@ -62,7 +62,6 @@ class ResultStructure:
             # 网络性能指标
             "network_metrics": {
                 "avg_rtt": 0.0,             # 平均往返时间(ms)
-                "packet_loss_ratio": 0.0,   # 丢包率
                 "bandwidth_utilization": 0.0, # 带宽利用率
                 "connection_failure_rate": 0.0, # 连接失败率
             },
@@ -71,12 +70,8 @@ class ResultStructure:
             "tcp_health": {
                 "retransmission_ratio": 0.0, # 重传比例
                 "out_of_order_ratio": 0.0,  # 乱序比例
-                "duplicate_ack_ratio": 0.0, # 重复ACK比例
-                "zero_window_count": 0,     # 零窗口计数
-                "avg_window_size": 0.0,     # 平均窗口大小
-                "avg_reassembly_time": 0.0, # 平均重组时间
             },
-            
+
             # 实时分析事件管理
             "event_logs": {
                 "events_received": 0,

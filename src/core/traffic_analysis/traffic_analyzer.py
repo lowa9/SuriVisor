@@ -20,410 +20,66 @@ import subprocess
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
 from src.core.suricata_monitor.process_manager import SuricataProcessManager
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# 创建 Logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # 全局最低级别（DEBUG）
+
+# --- 文件处理器（记录所有 DEBUG 及以上日志）---
+file_handler = logging.FileHandler(os.path.join(os.path.dirname(__file__),'../../../data/logs/surivisor.log'), mode='a')
+file_handler.setLevel(logging.DEBUG)  # 文件记录 DEBUG+
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# # --- 控制台处理器（只显示 INFO 及以上日志）---
+# console_handler = logging.StreamHandler()
+# console_handler.setLevel(logging.INFO)  # 控制台只显示 INFO+
+# console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
+# 添加处理器
+logger.addHandler(file_handler)
+# logger.addHandler(console_handler)
 
 
 class TrafficAnalyzer:
     """
     流量分析器类
     
-    实现了自动化的流量模式识别与分类功能，用于分析网络流量并识别潜在威胁。
+    该类提供了流量分析的核心功能，包括实时流量分析和离线分析。
+    该类检测分析了一些关键的网络指标
     """
     
-    def __init__(self, attack_patterns_file=None):
+    def __init__(self):
         """
         初始化流量分析器
+
+        """
         
-        Args:
-            attack_patterns_file (str): 攻击模式库文件路径
-        """
-        self.attack_patterns = {}
-        self.flow_features = defaultdict(dict)
-        self.classified_flows = {}
+        # 初始化流量分析器的状态和配置
+        self.classified_flows = {}  # 存储分类后的流量信息
+        self.total_packets = 0      # 总数据包数
+        self.total_bytes = 0         # 总字节数
+        self.packet_rate = 0.0       # 数据包速率
+        self.byte_rate = 0.0         # 字节速率
+        self.protocol_distribution = {}  # 协议分布
+        self.port_distribution = {}      # 端口分布
         
-        # 加载攻击模式库
-        if attack_patterns_file and os.path.exists(attack_patterns_file):
-            self.load_attack_patterns(attack_patterns_file)
-        else:
-            # 使用默认的攻击模式
-            self._initialize_default_patterns()
-        
-        logger.info(f"初始化流量分析器: 已加载{len(self.attack_patterns)}种攻击模式")
-    
-    def _initialize_default_patterns(self):
-        """
-        初始化默认的攻击模式
-        """
-        self.attack_patterns = {
-            "port_scan": {
-                "description": "端口扫描攻击",
-                "features": {
-                    "unique_ports": {"min": 10, "weight": 0.4},
-                    "packets_per_second": {"min": 5, "weight": 0.3},
-                    "avg_packet_size": {"max": 100, "weight": 0.2},
-                    "syn_ratio": {"min": 0.8, "weight": 0.1}
-                }
-            },
-            "ddos": {
-                "description": "DDoS攻击",
-                "features": {
-                    "packets_per_second": {"min": 100, "weight": 0.4},
-                    "unique_sources": {"min": 5, "weight": 0.3},
-                    "syn_ratio": {"min": 0.7, "weight": 0.2},
-                    "avg_packet_size": {"max": 200, "weight": 0.1}
-                }
-            },
-            "brute_force": {
-                "description": "暴力破解攻击",
-                "features": {
-                    "failed_login_ratio": {"min": 0.6, "weight": 0.4},
-                    "login_attempts_per_minute": {"min": 10, "weight": 0.3},
-                    "unique_usernames": {"min": 3, "weight": 0.2},
-                    "avg_request_interval": {"max": 5, "weight": 0.1}
-                }
-            },
-            "arp_spoofing": {
-                "description": "ARP欺骗攻击",
-                "features": {
-                    "arp_requests_per_second": {"min": 5, "weight": 0.4},
-                    "ip_mac_pairs": {"min": 2, "weight": 0.3},
-                    "gratuitous_arp_ratio": {"min": 0.5, "weight": 0.2},
-                    "arp_reply_without_request": {"min": 3, "weight": 0.1}
-                }
-            },
-            "data_exfiltration": {
-                "description": "数据泄露",
-                "features": {
-                    "outbound_data_volume": {"min": 1000000, "weight": 0.4},  # 1MB
-                    "unusual_destination": {"min": 0.7, "weight": 0.3},
-                    "unusual_protocol": {"min": 0.7, "weight": 0.2},
-                    "unusual_time": {"min": 0.7, "weight": 0.1}
-                }
-            }
-        }
-    
-    def load_attack_patterns(self, file_path):
-        """
-        从文件加载攻击模式库
-        
-        Args:
-            file_path (str): 攻击模式库文件路径
-            
-        Returns:
-            bool: 加载是否成功
-        """
-        try:
-            with open(file_path, 'r') as f:
-                self.attack_patterns = json.load(f)
-            logger.info(f"从{file_path}加载了{len(self.attack_patterns)}种攻击模式")
-            return True
-        except Exception as e:
-            logger.error(f"加载攻击模式库失败: {e}")
-            self._initialize_default_patterns()
-            return False
-    
-    def save_attack_patterns(self, file_path):
-        """
-        保存攻击模式库到文件
-        
-        Args:
-            file_path (str): 攻击模式库文件路径
-            
-        Returns:
-            bool: 保存是否成功
-        """
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(self.attack_patterns, f, indent=4)
-            logger.info(f"攻击模式库已保存到{file_path}")
-            return True
-        except Exception as e:
-            logger.error(f"保存攻击模式库失败: {e}")
-            return False
-    
-    def extract_features(self, flow_id, packets, metadata=None):
-        """
-        从数据包中提取特征
-        
-        Args:
-            flow_id (str): 流标识符
-            packets (list): 数据包列表
-            metadata (dict): 元数据信息
-            
-        Returns:
-            dict: 提取的特征
-        """
-        if not packets:
-            return {}
-        
-        # 初始化特征字典
-        features = {
-            "timestamp": time.time(),
-            "packet_count": len(packets),
-            "unique_ports": 0,
-            "unique_sources": 0,
-            "unique_destinations": 0,
-            "avg_packet_size": 0,
-            "packets_per_second": 0,
-            "syn_ratio": 0,
-            "failed_login_ratio": 0,
-            "login_attempts_per_minute": 0,
-            "unique_usernames": 0,
-            "avg_request_interval": 0,
-            "arp_requests_per_second": 0,
-            "ip_mac_pairs": 0,
-            "gratuitous_arp_ratio": 0,
-            "arp_reply_without_request": 0,
-            "outbound_data_volume": 0,
-            "unusual_destination": 0,
-            "unusual_protocol": 0,
-            "unusual_time": 0
+        # 网络性能指标
+        self.network_metrics = {
+            "avg_rtt": 0.0,                  # 平均往返时间(ms)
+            "bandwidth_utilization": 0.0,    # 带宽利用率(%)
+            "connection_failure_rate": 0.0   # 连接失败率(%)
         }
         
-        # 提取基本特征
-        ports = set()
-        sources = set()
-        destinations = set()
-        total_size = 0
-        syn_count = 0
-        arp_request_count = 0
-        arp_reply_count = 0
-        arp_reply_without_request_count = 0
-        gratuitous_arp_count = 0
-        ip_mac_map = {}
-        outbound_data = 0
-        
-        # 计算时间相关特征
-        start_time = packets[0].get('timestamp', time.time())
-        end_time = packets[-1].get('timestamp', time.time())
-        duration = max(end_time - start_time, 0.001)  # 避免除零错误
-        
-        # 分析每个数据包
-        for packet in packets:
-            # 提取基本信息
-            src_ip = packet.get('src_ip', '')
-            dst_ip = packet.get('dst_ip', '')
-            src_port = packet.get('src_port', 0)
-            dst_port = packet.get('dst_port', 0)
-            protocol = packet.get('protocol', '')
-            size = packet.get('size', 0)
-            flags = packet.get('flags', {})
-            
-            # 更新集合
-            if src_port > 0:
-                ports.add(src_port)
-            if dst_port > 0:
-                ports.add(dst_port)
-            if src_ip:
-                sources.add(src_ip)
-            if dst_ip:
-                destinations.add(dst_ip)
-            
-            # 累计大小
-            total_size += size
-            
-            # 检查SYN标志
-            if flags.get('syn', False) and not flags.get('ack', False):
-                syn_count += 1
-            
-            # 检查ARP包
-            if protocol.lower() == 'arp':
-                if packet.get('arp_operation', 0) == 1:  # ARP请求
-                    arp_request_count += 1
-                elif packet.get('arp_operation', 0) == 2:  # ARP响应
-                    arp_reply_count += 1
-                    
-                    # 检查是否有对应的请求
-                    if packet.get('arp_reply_without_request', False):
-                        arp_reply_without_request_count += 1
-                    
-                    # 检查是否是无故ARP（Gratuitous ARP）
-                    if packet.get('gratuitous_arp', False):
-                        gratuitous_arp_count += 1
-                
-                # 记录IP-MAC对应关系
-                sender_ip = packet.get('arp_sender_ip', '')
-                sender_mac = packet.get('arp_sender_mac', '')
-                if sender_ip and sender_mac:
-                    if sender_ip in ip_mac_map and ip_mac_map[sender_ip] != sender_mac:
-                        # 发现IP-MAC映射变化
-                        features["ip_mac_pairs"] += 1
-                    ip_mac_map[sender_ip] = sender_mac
-            
-            # 计算出站数据量
-            if metadata and 'local_networks' in metadata:
-                local_networks = metadata['local_networks']
-                is_outbound = any(src_ip.startswith(net) for net in local_networks) and \
-                              not any(dst_ip.startswith(net) for net in local_networks)
-                if is_outbound:
-                    outbound_data += size
-        
-        # 计算特征值
-        features["unique_ports"] = len(ports)
-        features["unique_sources"] = len(sources)
-        features["unique_destinations"] = len(destinations)
-        features["avg_packet_size"] = total_size / len(packets) if packets else 0
-        features["packets_per_second"] = len(packets) / duration
-        features["syn_ratio"] = syn_count / len(packets) if packets else 0
-        features["arp_requests_per_second"] = arp_request_count / duration
-        features["gratuitous_arp_ratio"] = gratuitous_arp_count / arp_reply_count if arp_reply_count else 0
-        features["arp_reply_without_request"] = arp_reply_without_request_count
-        features["outbound_data_volume"] = outbound_data
-        
-        # 如果有元数据，可以计算更多特征
-        if metadata:
-            # 计算登录相关特征（如果有）
-            if 'login_attempts' in metadata:
-                login_attempts = metadata['login_attempts']
-                failed_logins = sum(1 for attempt in login_attempts if not attempt.get('success', False))
-                features["failed_login_ratio"] = failed_logins / len(login_attempts) if login_attempts else 0
-                features["login_attempts_per_minute"] = len(login_attempts) / (duration / 60)
-                features["unique_usernames"] = len(set(attempt.get('username', '') for attempt in login_attempts))
-            
-            # 计算时间间隔
-            if len(packets) > 1:
-                intervals = [packets[i+1].get('timestamp', 0) - packets[i].get('timestamp', 0) 
-                             for i in range(len(packets)-1)]
-                features["avg_request_interval"] = sum(intervals) / len(intervals)
-            
-            # 计算异常特征
-            if 'normal_destinations' in metadata:
-                normal_dests = set(metadata['normal_destinations'])
-                unusual_dests = len(destinations - normal_dests)
-                features["unusual_destination"] = unusual_dests / len(destinations) if destinations else 0
-            
-            if 'normal_protocols' in metadata:
-                normal_protocols = set(metadata['normal_protocols'])
-                protocols_used = set(p.get('protocol', '') for p in packets)
-                unusual_protocols = len(protocols_used - normal_protocols)
-                features["unusual_protocol"] = unusual_protocols / len(protocols_used) if protocols_used else 0
-            
-            if 'normal_hours' in metadata:
-                normal_hours = set(metadata['normal_hours'])
-                current_hour = datetime.fromtimestamp(start_time).hour
-                features["unusual_time"] = 0 if current_hour in normal_hours else 1
-        
-        # 保存特征
-        self.flow_features[flow_id] = features
-        
-        return features
-    
-    def classify_flow(self, flow_id, features=None):
-        """
-        对流量进行分类
-        
-        Args:
-            flow_id (str): 流标识符
-            features (dict): 流量特征，如果为None则使用之前提取的特征
-            
-        Returns:
-            dict: 分类结果，包含攻击类型和置信度
-        """
-        if features is None:
-            if flow_id not in self.flow_features:
-                logger.warning(f"流 {flow_id} 的特征不存在")
-                return {"type": "normal", "confidence": 1.0, "details": {}}
-            features = self.flow_features[flow_id]
-        
-        # 初始化结果
-        result = {
-            "type": "normal",
-            "confidence": 0.0,
-            "details": {}
+        # TCP健康度指标
+        self.tcp_health_metrics = {
+            "retransmission_ratio": 0.0,     # 重传比例(%)
+            "out_of_order_ratio": 0.0       # 乱序比例(%)
         }
         
-        # 对每种攻击模式计算匹配度
-        max_score = 0.0
-        for attack_type, pattern in self.attack_patterns.items():
-            score = 0.0
-            matched_features = {}
-            
-            # 计算每个特征的匹配度
-            for feature_name, criteria in pattern["features"].items():
-                if feature_name not in features:
-                    continue
-                
-                feature_value = features[feature_name]
-                weight = criteria.get("weight", 1.0)
-                
-                # 根据条件类型计算匹配度
-                if "min" in criteria and feature_value >= criteria["min"]:
-                    matched_features[feature_name] = {
-                        "value": feature_value,
-                        "threshold": criteria["min"],
-                        "match": True
-                    }
-                    score += weight
-                elif "max" in criteria and feature_value <= criteria["max"]:
-                    matched_features[feature_name] = {
-                        "value": feature_value,
-                        "threshold": criteria["max"],
-                        "match": True
-                    }
-                    score += weight
-                else:
-                    matched_features[feature_name] = {
-                        "value": feature_value,
-                        "threshold": criteria.get("min", criteria.get("max", 0)),
-                        "match": False
-                    }
-            
-            # 归一化得分
-            total_weight = sum(criteria.get("weight", 1.0) for criteria in pattern["features"].values())
-            normalized_score = score / total_weight if total_weight > 0 else 0
-            
-            # 更新结果
-            if normalized_score > max_score:
-                max_score = normalized_score
-                result["type"] = attack_type
-                result["confidence"] = normalized_score
-                result["details"] = {
-                    "description": pattern.get("description", ""),
-                    "matched_features": matched_features
-                }
+        # 告警信息
+        self.detected_alerts = []
         
-        # 如果得分低于阈值，认为是正常流量
-        if max_score < 0.6:  # 可配置的阈值
-            result["type"] = "normal"
-            result["confidence"] = 1.0 - max_score
-        
-        # 保存分类结果
-        self.classified_flows[flow_id] = result
-        
-        return result
-    
-    def analyze_traffic(self, flows):
-        """
-        分析多个流量
-        
-        Args:
-            flows (dict): 流量数据，格式为 {flow_id: {"packets": [...], "metadata": {...}}}
-            
-        Returns:
-            dict: 分析结果，格式为 {flow_id: {"classification": {...}, "features": {...}}}
-        """
-        results = {}
-        
-        for flow_id, flow_data in flows.items():
-            # 提取特征
-            features = self.extract_features(
-                flow_id, 
-                flow_data.get("packets", []), 
-                flow_data.get("metadata", None)
-            )
-            
-            # 分类
-            classification = self.classify_flow(flow_id, features)
-            
-            # 保存结果
-            results[flow_id] = {
-                "classification": classification,
-                "features": features
-            }
-        
-        return results
+        logger.info(f"初始化流量分析器") 
     
     def get_statistics(self):
         """
@@ -481,6 +137,198 @@ class TrafficAnalyzer:
         result["summary"] = f"流量分析完成，共分析{total_flows}个流，其中攻击流{attack_flows}个，正常流{type_counts.get('normal', 0)}个"
         
         return result
+    
+    def analyze_realtime_metrics(self, output_log_dir: str = None) -> Dict[str, Any]:
+        """
+        实时分析网络性能指标和TCP健康度指标
+        
+        从eve.json文件中提取网络性能指标和TCP健康度指标，用于实时监控
+        
+        Args:
+            eve_json_path: eve.json文件路径
+            
+        Returns:
+            Dict[str, Any]: 分析结果，包含网络性能指标和TCP健康度指标
+        """
+        eve_json_path = os.path.join(output_log_dir, "eve.json")
+        if not os.path.exists(eve_json_path):
+            logger.error(f"eve.json文件不存在: {eve_json_path}")
+            return {"success": False, "error": f"eve.json文件不存在: {eve_json_path}"}
+        
+        try:
+            # 用于计算网络性能指标的临时数据结构
+            tcp_sessions = {}  # 存储TCP会话信息，用于计算RTT
+            stream_stats = {   # 流事件统计信息
+                "total_flows": 0,
+                "retransmissions": 0,  # 重传事件数
+                "out_of_order": 0      # 乱序事件数
+            }
+            flow_stats = {     # 流量统计信息
+                "total_flows": 0,
+                "failed_connections": 0,
+                "total_packets": 0
+            }
+            
+            # 导入ResultStructure，确保只在需要时导入
+            from src.utils.result_utils import ResultStructure
+            
+            # 创建基础结果数据结构
+            result = ResultStructure.create_base_result()
+            result["success"] = True
+            
+            # 获取文件大小，用于限制读取量
+            file_size = os.path.getsize(eve_json_path)
+            max_read_size = 10 * 1024 * 1024  # 最多读取10MB数据
+            
+            # 从文件末尾开始读取最新的事件
+            with open(eve_json_path, 'r') as f:
+                # 如果文件过大，只读取最后部分
+                if file_size > max_read_size:
+                    f.seek(file_size - max_read_size)
+                    # 跳过当前行，确保从完整的一行开始读取
+                    f.readline()
+                
+                # 读取并处理事件
+                for line in f:
+                    if not line.strip():
+                        continue
+                        
+                    try:
+                        event = json.loads(line)
+                        
+                        # 处理统计事件，提取数据包信息
+                        if event.get('event_type') == 'stats':
+                            stats = event.get('stats', {})
+                            stats_decoder = stats.get('decoder', {})
+                            stats_flow = stats.get('flow', {})
+
+                            # 提取总数据包数
+                            if 'pkts' in stats_decoder:
+                                result["traffic_stats"] = result.get("traffic_stats", {}) or {}
+                                result["traffic_stats"]["total_packets"] = stats_decoder['pkts']
+                                flow_stats["total_packets"] = stats_decoder['pkts']
+                            
+                            # 提取总字节数
+                            if 'bytes' in stats_decoder:
+                                result["traffic_stats"] = result.get("traffic_stats", {}) or {}
+                                result["traffic_stats"]["total_bytes"] = stats_decoder['bytes']
+
+                            # 提取所有的流量数
+                            if 'total' in stats_flow:
+                                result["traffic_stats"] = result.get("traffic_stats", {}) or {}
+                                result["traffic_stats"]["flow_count"] = stats_flow['total']
+                                flow_stats["total_flows"] = stats_flow['total']
+                                stream_stats["total_flows"] = stats_flow['total']
+
+                            # 提取分析的tcp流量数
+                            if 'tcp' in stats_flow:
+                                result["traffic_stats"] = result.get("traffic_stats", {}) or {}
+                                result["traffic_stats"]["tcp_flow_count"] = stats_flow['tcp']
+
+                            # 提取分析的udp流量数
+                            if 'udp' in stats_flow:
+                                result["traffic_stats"] = result.get("traffic_stats", {}) or {}
+                                result["traffic_stats"]["udp_flow_count"] = stats_flow['udp']                    
+                        
+                        # 处理流事件，用于计算网络性能指标
+                        elif event.get('event_type') == 'flow':
+                            flow_stats["total_flows"] += 1
+                            
+                            # 提取流信息
+                            flow = event.get('flow', {})
+                            proto = flow.get('proto', '')
+                            start_time = flow.get('start', '')
+                            end_time = flow.get('end', '')
+                            
+                            # 检查是否为失败的连接（短连接或重置连接）
+                            if flow.get('state', '') in ['failed', 'reset']:
+                                flow_stats["failed_connections"] += 1
+                            
+                            # 计算TCP会话的RTT（如果有开始和结束时间）
+                            if proto == 'TCP' and start_time and end_time:
+                                try:
+                                    # 解析时间字符串为datetime对象
+                                    start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S.%f%z")
+                                    end_dt = datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S.%f%z")
+                                    
+                                    # 计算会话持续时间（毫秒）
+                                    duration_ms = (end_dt - start_dt).total_seconds() * 1000
+                                    
+                                    # 存储会话信息，用于后续计算平均RTT
+                                    session_id = f"{flow.get('src_ip')}:{flow.get('src_port')}-{flow.get('dest_ip')}:{flow.get('dest_port')}"
+                                    tcp_sessions[session_id] = duration_ms
+                                except (ValueError, TypeError) as e:
+                                    logger.debug(f"无法解析流时间: {e}")
+                        
+                        # 处理stream事件，用于计算TCP健康度指标
+                        elif event.get('event_type') == 'stream':
+                            stream = event.get('stream', {})
+                            event_type = stream.get('event', '')
+                            
+                            # 检查是否为乱序包事件
+                            if event_type == 'out-of-order-packet':
+                                stream_stats["out_of_order"] += 1
+                            
+                            # 检查是否为重传事件
+                            elif event_type == 'retransmission':
+                                stream_stats["retransmissions"] += 1
+                            
+                    except json.JSONDecodeError:
+                        logger.warning(f"无法解析JSON行: {line}")
+                        continue
+            
+            # 计算网络性能指标
+            # 1. 平均往返时间 (RTT)
+            if tcp_sessions:
+                avg_rtt = sum(tcp_sessions.values()) / len(tcp_sessions)
+                result["network_metrics"] = result.get("network_metrics", {}) or {}
+                result["network_metrics"]["avg_rtt"] = round(avg_rtt, 2)
+                # 更新类属性
+                self.network_metrics["avg_rtt"] = round(avg_rtt, 2)
+            
+            # 2. 连接失败率
+            if flow_stats["total_flows"] > 0:
+                connection_failure_rate = (flow_stats["failed_connections"] / flow_stats["total_flows"]) * 100
+                result["network_metrics"] = result.get("network_metrics", {}) or {}
+                result["network_metrics"]["connection_failure_rate"] = round(connection_failure_rate, 2)
+                # 更新类属性
+                self.network_metrics["connection_failure_rate"] = round(connection_failure_rate, 2)
+            
+            # 3. 带宽利用率（这需要额外信息，这里使用一个估计值）
+            # 假设带宽利用率与数据包数量和字节数有关
+            if result.get("traffic_stats", {}).get("total_bytes", 0) > 0:
+                # 这里使用一个简化的计算方法，实际应用中可能需要更复杂的算法
+                bandwidth_utilization = min(100, (result["traffic_stats"]["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
+                result["network_metrics"] = result.get("network_metrics", {}) or {}
+                result["network_metrics"]["bandwidth_utilization"] = round(bandwidth_utilization, 2)
+                # 更新类属性
+                self.network_metrics["bandwidth_utilization"] = round(bandwidth_utilization, 2)
+            
+            # 计算TCP健康度指标（基于stream事件）
+            if stream_stats["total_flows"] > 0:
+                # 1. 重传比例（粗略计算）
+                retransmission_ratio = (stream_stats["retransmissions"] / stream_stats["total_flows"]) * 100
+                result["tcp_health"] = result.get("tcp_health", {}) or {}
+                result["tcp_health"]["retransmission_ratio"] = round(retransmission_ratio, 2)
+                # 更新类属性
+                self.tcp_health_metrics["retransmission_ratio"] = round(retransmission_ratio, 2)
+                
+                # 2. 乱序比例（粗略计算）
+                out_of_order_ratio = (stream_stats["out_of_order"] / stream_stats["total_flows"]) * 100
+                result["tcp_health"] = result.get("tcp_health", {}) or {}
+                result["tcp_health"]["out_of_order_ratio"] = round(out_of_order_ratio, 2)
+                # 更新类属性
+                self.tcp_health_metrics["out_of_order_ratio"] = round(out_of_order_ratio, 2)
+            
+            # 更新类的其他属性
+            self.total_packets = result.get("traffic_stats", {}).get("total_packets", 0)
+            self.total_bytes = result.get("traffic_stats", {}).get("total_bytes", 0)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"实时分析过程中发生错误: {e}")
+            return {"success": False, "error": str(e)}
     
     def analyze_pcap(self, pcap_file: str, suricata_manager: SuricataProcessManager, log_dir: str = None, callback: Optional[Callable] = None) -> Dict[str, Any]:
         """
@@ -559,6 +407,22 @@ class TrafficAnalyzer:
             
             # 分析完成后处理结果
             try:
+                # 用于计算网络性能指标的临时数据结构
+                tcp_sessions = {}  # 存储TCP会话信息，用于计算RTT
+                tcp_stats = {      # TCP统计信息
+                    "total_packets": 0,
+                    "retransmissions": 0,
+                    "out_of_order": 0,
+                    "duplicate_acks": 0,
+                    "window_sizes": [],
+                    "reassembly_times": []
+                }
+                flow_stats = {     # 流量统计信息
+                    "total_flows": 0,
+                    "failed_connections": 0,
+                    "total_packets": 0
+                }
+                
                 # 读取eve.json文件，只处理新增的行
                 with open(eve_json, 'r') as f:
                     # 跳过已有的行
@@ -600,6 +464,7 @@ class TrafficAnalyzer:
                                 # 提取总数据包数
                                 if 'pkts' in stats_decoder:
                                     result["traffic_stats"]["total_packets"] = stats_decoder['pkts']
+                                    flow_stats["total_packets"] = stats_decoder['pkts']
                                 
                                 # 提取总字节数
                                 if 'bytes' in stats_decoder:
@@ -608,6 +473,7 @@ class TrafficAnalyzer:
                                 # 提取所有的流量数
                                 if 'total' in stats_flow:
                                     result["traffic_stats"]["flow_count"] = stats_flow['total']
+                                    flow_stats["total_flows"] = stats_flow['total']
 
                                 # 提取分析的tcp流量数
                                 if 'tcp' in stats_flow:
@@ -618,9 +484,136 @@ class TrafficAnalyzer:
                                     result["traffic_stats"]["udp_flow_count"] = stats_flow['udp']                    
                                 
                                 logger.info(f"提取到数据包统计信息: 总数据包={result['traffic_stats']['total_packets']}")
+                            
+                            # 处理流事件，用于计算网络性能指标
+                            elif event.get('event_type') == 'flow':
+                                flow_stats["total_flows"] += 1
+                                
+                                # 提取流信息
+                                flow = event.get('flow', {})
+                                proto = flow.get('proto', '')
+                                start_time = flow.get('start', '')
+                                end_time = flow.get('end', '')
+                                
+                                # 检查是否为失败的连接（短连接或重置连接）
+                                if flow.get('state', '') in ['failed', 'reset']:
+                                    flow_stats["failed_connections"] += 1
+                                
+                                # 计算TCP会话的RTT（如果有开始和结束时间）
+                                if proto == 'TCP' and start_time and end_time:
+                                    try:
+                                        # 解析时间字符串为datetime对象
+                                        start_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S.%f%z")
+                                        end_dt = datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S.%f%z")
+                                        
+                                        # 计算会话持续时间（毫秒）
+                                        duration_ms = (end_dt - start_dt).total_seconds() * 1000
+                                        
+                                        # 存储会话信息，用于后续计算平均RTT
+                                        session_id = f"{flow.get('src_ip')}:{flow.get('src_port')}-{flow.get('dest_ip')}:{flow.get('dest_port')}"
+                                        tcp_sessions[session_id] = duration_ms
+                                    except (ValueError, TypeError) as e:
+                                        logger.debug(f"无法解析流时间: {e}")
+                            
+                            # 处理TCP事件，用于计算TCP健康度指标
+                            elif event.get('event_type') == 'tcp':
+                                tcp_stats["total_packets"] += 1
+                                tcp = event.get('tcp', {})
+                                
+                                # 检查是否为重传包
+                                if tcp.get('retransmission', False):
+                                    tcp_stats["retransmissions"] += 1
+                                
+                                # 检查是否为乱序包
+                                if tcp.get('out_of_order', False):
+                                    tcp_stats["out_of_order"] += 1
+                                
+                                # 检查是否为重复ACK
+                                if tcp.get('duplicate_ack', False):
+                                    tcp_stats["duplicate_acks"] += 1
+
+                                else:
+                                    # 记录窗口大小（非零）
+                                    window_size = tcp.get('window', 0)
+                                    if window_size > 0:
+                                        tcp_stats["window_sizes"].append(window_size)
+                                
+                                # 记录重组时间（如果有）
+                                if 'reassembly_time' in tcp:
+                                    tcp_stats["reassembly_times"].append(tcp['reassembly_time'])
+                                
+
                         except json.JSONDecodeError:
                             logger.warning(f"无法解析JSON行: {line}")
                             continue
+                
+                # 计算网络性能指标
+                # 1. 平均往返时间 (RTT)
+                if tcp_sessions:
+                    avg_rtt = sum(tcp_sessions.values()) / len(tcp_sessions)
+                    result["network_metrics"] = result.get("network_metrics", {}) or {}
+                    result["network_metrics"]["avg_rtt"] = round(avg_rtt, 2)
+                    # 更新类属性
+                    self.network_metrics["avg_rtt"] = round(avg_rtt, 2)
+                
+                # 2. 连接失败率
+                if flow_stats["total_flows"] > 0:
+                    connection_failure_rate = (flow_stats["failed_connections"] / flow_stats["total_flows"]) * 100
+                    result["network_metrics"] = result.get("network_metrics", {}) or {}
+                    result["network_metrics"]["connection_failure_rate"] = round(connection_failure_rate, 2)
+                    # 更新类属性
+                    self.network_metrics["connection_failure_rate"] = round(connection_failure_rate, 2)
+                
+                # 4. 带宽利用率（这需要额外信息，这里使用一个估计值）
+                # 假设带宽利用率与数据包数量和字节数有关
+                if result["traffic_stats"]["total_bytes"] > 0:
+                    # 这里使用一个简化的计算方法，实际应用中可能需要更复杂的算法
+                    bandwidth_utilization = min(100, (result["traffic_stats"]["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
+                    result["network_metrics"] = result.get("network_metrics", {}) or {}
+                    result["network_metrics"]["bandwidth_utilization"] = round(bandwidth_utilization, 2)
+                    # 更新类属性
+                    self.network_metrics["bandwidth_utilization"] = round(bandwidth_utilization, 2)
+                
+                # 计算TCP健康度指标
+                if tcp_stats["total_packets"] > 0:
+                    # 1. 重传比例
+                    retransmission_ratio = (tcp_stats["retransmissions"] / tcp_stats["total_packets"]) * 100
+                    result["tcp_health"] = result.get("tcp_health", {}) or {}
+                    result["tcp_health"]["retransmission_ratio"] = round(retransmission_ratio, 2)
+                    # 更新类属性
+                    self.tcp_health_metrics["retransmission_ratio"] = round(retransmission_ratio, 2)
+                    
+                    # 2. 乱序比例
+                    out_of_order_ratio = (tcp_stats["out_of_order"] / tcp_stats["total_packets"]) * 100
+                    result["tcp_health"]["out_of_order_ratio"] = round(out_of_order_ratio, 2)
+                    # 更新类属性
+                    self.tcp_health_metrics["out_of_order_ratio"] = round(out_of_order_ratio, 2)
+                    
+                    # 3. 重复ACK比例
+                    duplicate_ack_ratio = (tcp_stats["duplicate_acks"] / tcp_stats["total_packets"]) * 100
+                    result["tcp_health"]["duplicate_ack_ratio"] = round(duplicate_ack_ratio, 2)
+                    # 更新类属性
+                    self.tcp_health_metrics["duplicate_ack_ratio"] = round(duplicate_ack_ratio, 2)
+                
+                # 5. 平均窗口大小
+                if tcp_stats["window_sizes"]:
+                    avg_window_size = sum(tcp_stats["window_sizes"]) / len(tcp_stats["window_sizes"])
+                    result["tcp_health"]["avg_window_size"] = int(avg_window_size)
+                    # 更新类属性
+                    self.tcp_health_metrics["avg_window_size"] = int(avg_window_size)
+                
+                # 6. 平均重组时间
+                if tcp_stats["reassembly_times"]:
+                    avg_reassembly_time = sum(tcp_stats["reassembly_times"]) / len(tcp_stats["reassembly_times"])
+                    result["tcp_health"]["avg_reassembly_time"] = round(avg_reassembly_time, 2)
+                    # 更新类属性
+                    self.tcp_health_metrics["avg_reassembly_time"] = round(avg_reassembly_time, 2)
+                
+                # 更新类的其他属性
+                self.total_packets = result["traffic_stats"].get("total_packets", 0)
+                self.total_bytes = result["traffic_stats"].get("total_bytes", 0)
+                # 存储检测到的告警
+                self.detected_alerts = result.get("alerts", [])
             except Exception as e:
                 logger.error(f"处理分析结果时发生错误: {e}")
                 return {"success": False, "error": str(e)}
@@ -658,113 +651,3 @@ class TrafficAnalyzer:
         except Exception as e:
             logger.error(f"离线分析过程中发生错误: {e}")
             return {"success": False, "error": str(e)}
-    
-    def generate_report(self, suricata_result, eve_json_path, output_file=None):
-        """
-        生成统一格式的分析报告
-        
-        Args:
-            suricata_result (dict): 从Suricata获取的统计信息和事件数据摘要。
-                                    预期包含 'stats' 和 'flow' 事件中的相关字段。
-            eve_json_path (str): EVE JSON 日志文件的路径。
-            output_file (str): 输出文件路径，如果为None则返回报告字典。
-            
-        Returns:
-            dict or bool: 如果output_file为None，返回包含分析结果的字典；否则返回是否成功写入文件。
-        """
-        # 初始化结果字典
-        result = {
-            # 基础状态
-            "success": True,  
-            "alerts": [],      # 告警列表
-            "alert_count": 0,  # 告警数量
-
-            # 流量统计
-            "total_packets": suricata_result.get("total_packets", 0),
-            "total_bytes": suricata_result.get("total_bytes", 0),
-            "tcp_flows": suricata_result.get("tcp_flows", 0),
-            "udp_flows": suricata_result.get("udp_flows", 0),
-            "analyzed_flows": suricata_result.get("analyzed_flows", len(self.classified_flows)), # 使用分类器分析的流数量
-            "reassembled_packets": suricata_result.get("reassembled_packets", 0),
-
-            # 网络性能指标
-            "lost_packets": suricata_result.get("lost_packets", 0),
-            "lost_packets_ratio": round(
-                (suricata_result.get("kernel_drops", 0) + suricata_result.get("decoder_drops", 0))
-                / max(1, suricata_result.get("received_packets", 1)),
-                4
-            ),
-            "kernel_drops": suricata_result.get("kernel_drops", 0),
-            "decoder_drops": suricata_result.get("decoder_drops", 0),
-
-            # TCP流健康度指标
-            "tcp_out_of_order_ratio": round(
-                suricata_result.get("tcp_out_of_order", 0)
-                / max(1, suricata_result.get("tcp_packets", 1)),
-                4
-            ),
-            "tcp_retransmission_ratio": round(
-                suricata_result.get("tcp_retransmissions", 0)
-                / max(1, suricata_result.get("tcp_packets", 1)),
-                4
-            ),
-            "tcp_reassembly_failures": suricata_result.get("tcp_reassembly_failures", 0),
-
-            # 其他补充指标
-            "active_flows": suricata_result.get("active_flows", 0),
-            "flow_timeouts": suricata_result.get("flow_timeouts", 0),
-
-            # 日志路径
-            "log_file": eve_json_path
-        }
-
-        try:
-            # 填充告警信息 (从已分类的流量中提取)
-            detected_attacks = []
-            for flow_id, classification_result in self.classified_flows.items():
-                if classification_result.get("type", "normal") != "normal":
-                    attack_info = {
-                        "flow_id": flow_id,
-                        "attack_type": classification_result.get("type", "unknown"),
-                        "confidence": classification_result.get("confidence", 0),
-                        "description": classification_result.get("details", {}).get("description", ""),
-                        # 可以根据需要添加更多告警细节，例如匹配的特征
-                        "matched_features": classification_result.get("details", {}).get("matched_features", {})
-                    }
-                    detected_attacks.append(attack_info)
-            
-            result["alerts"] = detected_attacks
-            result["alert_count"] = len(detected_attacks)
-
-            # 如果指定了输出文件，写入文件
-            if output_file:
-                try:
-                    with open(output_file, 'w') as f:
-                        json.dump(result, f, indent=4)
-                    logger.info(f"统一格式的分析报告已保存到{output_file}")
-                    return True
-                except Exception as e:
-                    logger.error(f"保存统一格式的分析报告失败: {e}")
-                    result["success"] = False
-                    result["error_message"] = f"Failed to save report: {e}"
-                    return False # 保存失败
-            
-            # 否则返回报告字典
-            return result
-
-        except Exception as e:
-            logger.error(f"生成统一格式的分析报告时出错: {e}")
-            result["success"] = False
-            result["error_message"] = f"Error generating report: {e}"
-            # 即使出错，也尝试返回部分结果
-            if output_file:
-                # 尝试保存包含错误信息的文件
-                try:
-                    with open(output_file, 'w') as f:
-                        json.dump(result, f, indent=4)
-                    logger.warning(f"已保存包含错误的分析报告到 {output_file}")
-                except Exception as write_err:
-                    logger.error(f"保存错误报告也失败了: {write_err}")
-                return False # 生成或保存失败
-            return result # 返回包含错误信息的字典
-

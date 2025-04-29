@@ -209,10 +209,6 @@
                     <div class="stat-value">{{ data.traffic_stats.total_bytes }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">数据包速率</div>
-                    <div class="stat-value">{{ data.traffic_stats.packet_rate }}</div>
-                </div>
-                <div class="stat-card">
                     <div class="stat-label">流数量</div>
                     <div class="stat-value">{{ data.traffic_stats.flow_count }}</div>
                 </div>
@@ -232,10 +228,6 @@
                     <div class="stat-value">{{ data.network_metrics.avg_rtt }} ms</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">丢包率</div>
-                    <div class="stat-value">{{ data.network_metrics.packet_loss_ratio }}%</div>
-                </div>
-                <div class="stat-card">
                     <div class="stat-label">带宽利用率</div>
                     <div class="stat-value">{{ data.network_metrics.bandwidth_utilization }}%</div>
                 </div>
@@ -249,10 +241,6 @@
                 <div class="stat-card">
                     <div class="stat-label">乱序比例</div>
                     <div class="stat-value">{{ data.tcp_health.out_of_order_ratio }}%</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">零窗口计数</div>
-                    <div class="stat-value">{{ data.tcp_health.zero_window_count }}</div>
                 </div>
                 {% endif %}
             </div>
