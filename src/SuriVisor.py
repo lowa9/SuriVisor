@@ -137,9 +137,14 @@ class SuriVisor:
             logger.error("Suricata配置验证失败，系统启动终止")
             sys.exit(1)
         
-        
+        # 系统状态
+        self.running = False
+        self.event_manager = None
+        self.suricata_manager = None
+        self.report_generator = None
         self.traffic_analyzer = None
         self.event_detector = None
+        self.event_handler = None
         try:
             # 初始化Suricata进程管理器
             logger.info("初始化Suricata进程管理器...")
@@ -173,7 +178,7 @@ class SuriVisor:
                 
             # 导入并初始化事件处理器
             from src.core.event_manager.event_handler import EventHandler
-            self.event_handler = EventHandler()
+            self.event_handler = EventHandler(self.event_handler)
             
             # 注册各类事件处理器
             logger.info("注册事件处理器...")
@@ -211,13 +216,11 @@ class SuriVisor:
                     output_dir=reports_dir,
                     template_dir=templates_dir
                 )
-            
-            # 系统状态
-            self.running = False
-            logger.info("SuriVisor系统初始化完成")
 
         except Exception as e:
             logger.error(f"初始化组件失败: {e}")
+
+        logger.info("SuriVisor系统初始化完成")
 
     def load_config(self, config_file):
         """
@@ -265,143 +268,6 @@ class SuriVisor:
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
             return False
-    
-    def _generate_alert_report(self, event):
-        """
-        生成告警报告
-        
-        Args:
-            event (Event): 告警事件对象
-        """
-        try:
-            # 导入告警工具模块
-            from src.utils.alert_utils import AlertStructure
-            
-            # 创建基础结果数据结构
-            result = ResultStructure.create_base_result()
-            result["success"] = True
-            
-            # 确保告警数据是标准格式
-            if hasattr(event, 'data') and event.data:
-                # 检查是否已经是标准格式
-                if not ("id" in event.data and "severity" in event.data and isinstance(event.data.get("severity"), str)):
-                    # 转换为标准格式
-                    if "alert" in event.data:
-                        # 可能是Suricata格式
-                        event.data = AlertStructure.from_suricata_alert(event.data)
-                    else:
-                        # 其他格式，尝试创建标准告警
-                        event.data = AlertStructure.create_alert(
-                            signature=event.data.get('signature', '未知告警'),
-                            severity=event.data.get('severity', 'medium') if isinstance(event.data.get('severity'), str) else 'medium',
-                            category=event.data.get('category', '未分类'),
-                            source_ip=event.data.get('source_ip', event.data.get('src_ip', '')),
-                            source_port=str(event.data.get('source_port', event.data.get('src_port', ''))),
-                            destination_ip=event.data.get('destination_ip', event.data.get('dest_ip', '')),
-                            destination_port=str(event.data.get('destination_port', event.data.get('dest_port', ''))),
-                            protocol=event.data.get('protocol', event.data.get('proto', '')),
-                            description=event.data.get('description', ''),
-                            details={"original": event.data}
-                        )
-            
-            # 添加告警数据到结果
-            result["alerts"] = [event.data] if hasattr(event, 'data') else []
-            result["alert_count"] = len(result["alerts"])
-            result["summary"] = f"检测到告警事件: {event.id}"
-            
-            # 转换为报告数据结构
-            report_data = ResultStructure.create_report_result(result)
-            report_data["data"]["system_status"] = "running" if self.running else "stopped"
-            report_data["data"]["event"] = event.to_dict() if hasattr(event, 'to_dict') else {}
-            
-            # 生成报告文件名
-            report_file = os.path.join(
-                self.config["general"]["data_dir"],
-                f"reports/alert_report_{event.id}.html"
-            )
-            
-            # 确保报告目录存在
-            os.makedirs(os.path.dirname(report_file), exist_ok=True)
-            
-            # 使用报告生成器生成HTML报告
-            # 检查report_generator是否为None并且有generate_report方法
-            if self.report_generator and hasattr(self.report_generator, 'generate_report'):
-                self.report_generator.generate_report(
-                data=report_data,
-                report_type="html",
-                output_file=report_file
-            )
-            else:
-                logger.error("报告生成器未初始化或不支持generate_report方法")
-                return False
-                
-            logger.info(f"告警报告已生成: {report_file}")
-            return report_file
-        except Exception as e:
-            logger.error(f"生成告警报告失败: {e}")
-            return None
-    
-    def _generate_anomaly_report(self, event):
-        """
-        生成异常报告
-        
-        Args:
-            event (Event): 异常事件对象
-        """
-        try:
-            # 创建基础结果数据结构
-            result = ResultStructure.create_base_result()
-            result["success"] = True
-            
-            # 添加异常事件数据
-            if hasattr(event, 'data'):
-                result["alerts"] = [event.data]
-                result["alert_count"] = 1
-            
-            # 添加流量分析数据
-            if self.traffic_analyzer and hasattr(self.traffic_analyzer, 'get_statistics'):
-                traffic_stats = self.traffic_analyzer.get_statistics()
-                if isinstance(traffic_stats, dict):
-                    result["traffic_stats"] = traffic_stats
-            
-            # 添加异常检测数据
-            if self.event_detector and hasattr(self.event_detector, 'generate_anomaly_report'):
-                anomaly_data = self.event_detector.generate_anomaly_report()
-                if isinstance(anomaly_data, dict):
-                    # 将异常检测数据合并到结果中
-                    if "network_metrics" in anomaly_data:
-                        result["network_metrics"] = anomaly_data["network_metrics"]
-                    if "tcp_health" in anomaly_data:
-                        result["tcp_health"] = anomaly_data["tcp_health"]
-            
-            result["summary"] = f"检测到异常事件: {event.id}"
-            
-            # 转换为报告数据结构
-            report_data = ResultStructure.create_report_result(result)
-            report_data["data"]["system_status"] = "running" if self.running else "stopped"
-            report_data["data"]["event"] = event.to_dict() if hasattr(event, 'to_dict') else {}
-            
-            # 生成报告文件名
-            report_file = os.path.join(
-                self.config["general"]["data_dir"],
-                f"reports/anomaly_report_{event.id}.html"
-            )
-            
-            # 使用报告生成器生成HTML报告
-            # 检查report_generator是否为None并且有generate_report方法
-            if self.report_generator and hasattr(self.report_generator, 'generate_report'):
-                self.report_generator.generate_report(
-                data=report_data,
-                report_type="html",
-                output_file=report_file
-            )
-            else:
-                logger.error("报告生成器未初始化或不支持generate_report方法")
-                return False
-            
-            logger.info(f"异常报告已生成: {report_file}")
-        except Exception as e:
-            logger.error(f"生成异常报告失败: {e}")
     
     def start(self, start_suricata=True):
         """
@@ -586,27 +452,38 @@ class SuriVisor:
         from src.utils.result_utils import ResultStructure
         
         # 创建基础结果数据结构
-        report_result = ResultStructure.create_base_result()
-        report_result["success"] = True
-        report_result["system_status"] = "running" if self.running else "stopped"
+        base_result = ResultStructure.create_base_result()
+        base_result["success"] = True
+        # base_result["system_status"] = "running" if self.running else "stopped"
         
         # 添加流量分析器报告（已经使用标准格式）
         if self.traffic_analyzer:
             traffic_stats = self.traffic_analyzer.get_statistics()
             # 整合流量分析数据
-            report_result["traffic_stats"] = traffic_stats.get("traffic_stats", {})
-            report_result["network_metrics"] = traffic_stats.get("network_metrics", {})
-            report_result["tcp_health"] = traffic_stats.get("tcp_health", {})
+            base_result["traffic_stats"] = traffic_stats.get("traffic_stats", {})
+            base_result["network_metrics"] = traffic_stats.get("network_metrics", {})
+            base_result["tcp_health"] = traffic_stats.get("tcp_health", {})
         
         # 添加事件管理器报告
         if self.event_manager:
             # 获取检测到的alert信息
             alerts = self.event_manager.get_alerts()
-            report_result["alerts"] = alerts
-            report_result["alert_count"] = len(alerts)
+            base_result["alerts"] = alerts
+            base_result["alert_count"] = len(alerts)
             # 获取事件管理器报告
-            report_result["event_logs"] = self.event_manager.get_statistics()
+            base_result["event_logs"] = self.event_manager.get_statistics()
         
+        # 更新分析结果摘要
+        base_result["summary"] = f"系统报告已生成，检测到 {base_result['alert_count']} 个告警/异常事件"
+        
+        metadata = {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "generator": "SuriVisor",
+            "version": self.version,
+        }
+        report_result = ResultStructure.create_report_result(base_result,metadata)
+        report_result["data"]["system_status"] = "running" if self.running else "stopped"
+
         # 如果有报告生成器且不是JSON格式或指定了输出文件，使用报告生成器
         if self.report_generator and (report_type != "json" or output_file):
             # 如果未指定输出文件，生成默认文件名

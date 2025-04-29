@@ -63,7 +63,6 @@ class ResultStructure:
             "network_metrics": {
                 "avg_rtt": 0.0,             # 平均往返时间(ms)
                 "packet_loss_ratio": 0.0,   # 丢包率
-                "jitter": 0.0,              # 抖动(ms)
                 "bandwidth_utilization": 0.0, # 带宽利用率
                 "connection_failure_rate": 0.0, # 连接失败率
             },
@@ -77,6 +76,7 @@ class ResultStructure:
                 "avg_window_size": 0.0,     # 平均窗口大小
                 "avg_reassembly_time": 0.0, # 平均重组时间
             },
+            
             # 实时分析事件管理
             "event_logs": {
                 "events_received": 0,
@@ -100,9 +100,6 @@ class ResultStructure:
             
             # 分析结果摘要
             "summary": "",                  # 结果摘要
-            
-            # 原始数据
-            "raw_data": None,               # 原始数据
         }
     
     @staticmethod

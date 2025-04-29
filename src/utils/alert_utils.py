@@ -92,18 +92,7 @@ class AlertStructure:
         """
         try:
             # 提取Suricata告警中的基本信息
-            timestamp = suricata_alert.get("timestamp", "")
-            if isinstance(timestamp, str) and timestamp:
-                try:
-                    # 尝试将Suricata时间戳字符串转换为时间戳
-                    dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f%z")
-                    timestamp_value = dt.timestamp()
-                except ValueError:
-                    # 如果转换失败，使用当前时间
-                    timestamp_value = time.time()
-            else:
-                timestamp_value = time.time()
-            
+
             # 提取告警信息
             alert_data = suricata_alert.get("alert", {})
             
@@ -150,47 +139,31 @@ class AlertStructure:
             )
     
     @staticmethod
-    def from_anomaly_event(anomaly_data: Dict[str, Any]) -> Dict[str, Any]:
+    def from_anomaly_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         从异常事件数据转换为标准告警格式
         
         Args:
-            anomaly_data (Dict[str, Any]): 异常事件数据
+            event_data (Dict[str, Any]): 事件数据
             
         Returns:
             Dict[str, Any]: 标准告警数据结构
         """
         try:
             # 提取异常信息
+            anomaly_data = event_data.get("anomaly", {})
             anomaly_type = anomaly_data.get("type", "未知异常")
-            confidence = anomaly_data.get("confidence", 0)
-            src = anomaly_data.get("src", "")
-            
-            # 根据置信度确定严重程度
-            if confidence >= 0.9:
-                severity = "critical"
-            elif confidence >= 0.7:
-                severity = "high"
-            elif confidence >= 0.5:
-                severity = "medium"
-            elif confidence >= 0.3:
-                severity = "low"
-            else:
-                severity = "info"
-            
             # 创建标准告警
             return AlertStructure.create_alert(
                 signature=f"异常检测: {anomaly_type}",
-                severity=severity,
+                severity="medium",
                 category="异常检测",
-                src_ip=anomaly_data.get("src_ip", ""),
-                dest_ip=anomaly_data.get("dest_ip", ""),
-                protocol=anomaly_data.get("protocol", ""),
-                description=f"检测到异常行为: {anomaly_type} (置信度: {confidence:.2f})",
+                src_ip=event_data.get("src_ip", ""),
+                dest_ip=event_data.get("dest_ip", ""),
+                protocol=event_data.get("proto", ""),
+                description=f"检测到异常行为: {anomaly_type} ",
                 details={
-                    "confidence": confidence,
-                    "anomaly_src": src,
-                    "original": anomaly_data
+                    "original": event_data
                 }
             )
         except Exception as e:

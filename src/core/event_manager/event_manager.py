@@ -194,8 +194,11 @@ class EventManager:
         # 全局事件处理器，处理所有类型的事件
         self.global_handlers = []
         
-        # 锁
-        self.lock = threading.Lock()
+        # 数据锁
+        self.stats_lock = threading.Lock()
+
+        # 告警列表锁
+        self.alerts_lock = threading.Lock()
 
         # 统计信息（使用Counter优化）
         self.stats = {
@@ -210,7 +213,7 @@ class EventManager:
         }
 
         # 告警列表
-        self.alerts = []
+        self.processed_alerts = []
 
         # 线程控制
         self.running = False
@@ -285,7 +288,7 @@ class EventManager:
             if not isinstance(event, Event):
                 logger.warning(f"非法事件对象: 类型={type(event)}，内容={event}")
                 return False
-            with self.lock:
+            with self.stats_lock:
                 # 检查队列是否已满
                 if self.event_queue.full():
                     logger.warning("事件队列已满，无法加入新事件")
@@ -357,7 +360,7 @@ class EventManager:
                 except Exception as e:
                     logger.error(f"全局事件处理器 {handler.__name__} 处理事件 {event.id} 时出错: {e}")
         
-        with self.lock:
+        with self.stats_lock:
             # 更新统计信息
             processing_time = time.time() - start_time
             self.stats["events_processed"] += 1
@@ -488,6 +491,6 @@ class EventManager:
             List[Event]: 告警事件列表
         """
         # 记录当前告警列表，然后清除告警列表
-        alerts = self.alerts.copy()
-        self.alerts.clear()
+        alerts = self.processed_alerts.copy()
+        self.processed_alerts.clear()
         return alerts

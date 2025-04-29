@@ -17,7 +17,7 @@ from typing import Dict, List, Any, Optional
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from src.core.event_manager.event_manager import Event
+from src.core.event_manager.event_manager import EventManager, Event
 
 # 创建 Logger
 logger = logging.getLogger(__name__)
@@ -44,10 +44,11 @@ class EventHandler:
     负责处理不同类型的事件，包括alert事件、anomaly事件、flow事件和stats事件。
     """
     
-    def __init__(self):
+    def __init__(self, event_manager: EventManager) -> None:
         """
         初始化事件处理器
         """
+        self.event_manager = event_manager
         logger.info("初始化事件处理器")
     
     def handle_alert_event(self, event: Event) -> None:
@@ -66,29 +67,12 @@ class EventHandler:
             # 获取告警详情并标准化
             original_alert_data = event.data
             
-            # 检查是否已经是标准格式
-            if "id" in original_alert_data and "severity" in original_alert_data and isinstance(original_alert_data.get("severity"), str):
-                # 已经是标准格式
-                alert_data = original_alert_data
-            else:
-                # 转换为标准格式
-                if "alert" in original_alert_data:
-                    # 可能是Suricata格式
-                    alert_data = AlertStructure.from_suricata_alert(original_alert_data)
-                else:
-                    # 其他格式，尝试创建标准告警
-                    alert_data = AlertStructure.create_alert(
-                        signature=original_alert_data.get('signature', '未知告警'),
-                        severity=original_alert_data.get('severity', 'medium') if isinstance(original_alert_data.get('severity'), str) else 'medium',
-                        category=original_alert_data.get('category', '未分类'),
-                        source_ip=original_alert_data.get('source_ip', original_alert_data.get('src_ip', '')),
-                        source_port=str(original_alert_data.get('source_port', original_alert_data.get('src_port', ''))),
-                        destination_ip=original_alert_data.get('destination_ip', original_alert_data.get('dest_ip', '')),
-                        destination_port=str(original_alert_data.get('destination_port', original_alert_data.get('dest_port', ''))),
-                        protocol=original_alert_data.get('protocol', original_alert_data.get('proto', '')),
-                        description=original_alert_data.get('description', ''),
-                        details={"original": original_alert_data}
-                    )
+            alert_data = AlertStructure.from_suricata_alert(original_alert_data)
+
+            # 检查是否成功转换
+            if not alert_data:
+                logger.error("无法将告警事件转换为标准格式")
+                return
             
             # 更新事件数据为标准格式
             event.data = alert_data
@@ -108,6 +92,10 @@ class EventHandler:
                 # TODO: 实现低危告警的处理逻辑
             
             # 记录告警到数据库或文件
+            with self.event_manager.alerts_lock:
+                self.event_manager.processed_alerts.append(event)
+
+            # 记录告警到文件
             self._save_alert_to_file(event)
             
         except Exception as e:
@@ -127,25 +115,17 @@ class EventHandler:
             from src.utils.alert_utils import AlertStructure
             
             # 获取异常详情
-            original_anomaly_data = event.data
-            anomaly_type = original_anomaly_data.get('type', '未知异常')
-            anomaly_confidence = original_anomaly_data.get('confidence', 0)
-            anomaly_source = original_anomaly_data.get('source', '未知来源')
+            # original_anomaly_data = event.data.get('anomaly', {})
+            # anomaly_type = original_anomaly_data.get('type', '未知类型')
+            # anomaly_info = original_anomaly_data.get('anomaly', '未知异常信息')
             
             # 将异常事件转换为标准告警格式
-            alert_data = AlertStructure.from_anomaly_event(original_anomaly_data)
+            alert_data = AlertStructure.from_anomaly_event(event.data)
             
-            # 更新事件数据为标准格式
-            event.data = alert_data
-            
-            # 根据异常类型和置信度执行不同操作
-            if anomaly_confidence >= 0.8:  # 高置信度异常
-                logger.warning(f"高置信度异常: {anomaly_type}, 来源: {anomaly_source}")
-                # TODO: 实现高置信度异常的处理逻辑
-            else:  # 低置信度异常
-                logger.info(f"低置信度异常: {anomaly_type}, 来源: {anomaly_source}")
-                # TODO: 实现低置信度异常的处理逻辑
-            
+            # 记录告警到数据库或文件
+            with self.event_manager.alerts_lock:
+                self.event_manager.processed_alerts.append(alert_data)
+
             # 记录异常到数据库或文件
             self._save_anomaly_to_file(event)
             
