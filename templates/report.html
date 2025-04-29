@@ -236,10 +236,6 @@
                     <div class="stat-value">{{ data.network_metrics.packet_loss_ratio }}%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">抖动</div>
-                    <div class="stat-value">{{ data.network_metrics.jitter }} ms</div>
-                </div>
-                <div class="stat-card">
                     <div class="stat-label">带宽利用率</div>
                     <div class="stat-value">{{ data.network_metrics.bandwidth_utilization }}%</div>
                 </div>
@@ -259,12 +255,37 @@
                     <div class="stat-value">{{ data.tcp_health.zero_window_count }}</div>
                 </div>
                 {% endif %}
-                
-                {% if data.anomaly_detection %}
-                <div class="stat-card">
-                    <div class="stat-label">检测到的异常</div>
-                    <div class="stat-value">{{ data.anomaly_detection.total_anomalies }}</div>
-                </div>
+            </div>
+        </div>
+        
+        <div class="summary-box">
+            <h2>事件管理记录</h2>
+            <div class="stat-grid">
+                {% if data.event_logs %}
+                    <div class="stat-card">
+                        <div class="stat-label">已接收事件</div>
+                        <div class="stat-value">{{ data.event_logs.events_received }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">已处理事件</div>
+                        <div class="stat-value">{{ data.event_logs.events_processed }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">丢弃事件</div>
+                        <div class="stat-value">{{ data.event_logs.events_dropped }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">队列大小</div>
+                        <div class="stat-value">{{ data.event_logs.queue_size }}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">队列满载率</div>
+                        <div class="stat-value">{{ data.event_logs.queue_full_percentage }}%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">平均处理时间</div>
+                        <div class="stat-value">{{ "%.2f"|format(data.event_logs.avg_processing_time) }}ms</div>
+                    </div>
                 {% endif %}
             </div>
         </div>

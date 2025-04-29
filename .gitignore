@@ -10,3 +10,4 @@ docs
 venv
 etc
 config/rules/suricata.rules
+.vscode
