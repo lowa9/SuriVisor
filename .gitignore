@@ -5,6 +5,7 @@ data/logs/suricata/stats.log
 data/logs/surivisor.log
 data/logs/suricata/log.pcap.*
 data/reports
+data/stats
 src/ui/dashboard/node_modules
 docs
 venv

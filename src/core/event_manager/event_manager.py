@@ -15,7 +15,7 @@ import logging
 import json
 import threading
 from queue import PriorityQueue, Empty
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import Dict, List, Callable, Any, Optional, Tuple
 
 # 创建 Logger
@@ -67,8 +67,8 @@ class Event:
         self.source = source
         self.priority = priority
         self.data = data or {}
-        self.timestamp = time.time()
-        self.id = session_id
+        self.timestamp = timestamp
+        self.id = self.event_type + '_' + timestamp + '_' + session_id if session_id else None
 
     def __lt__(self, other):
         """
@@ -194,14 +194,17 @@ class EventManager:
         # 全局事件处理器，处理所有类型的事件
         self.global_handlers = []
         
-        # 事件统计信息
+        # 锁
+        self.lock = threading.Lock()
+
+        # 统计信息（使用Counter优化）
         self.stats = {
             "events_received": 0,
             "events_processed": 0,
             "events_dropped": 0,
-            "events_by_type": defaultdict(int),
-            "events_by_source": defaultdict(int),
-            "events_by_priority": defaultdict(int),
+            "events_by_type": Counter(),
+            "events_by_source": Counter(),
+            "events_by_priority": Counter(),
             "processing_time": 0,
             "avg_processing_time": 0
         }
@@ -279,21 +282,31 @@ class EventManager:
             bool: 如果成功加入队列，返回True
         """
         try:
-            # 尝试将事件加入队列
-            self.event_queue.put_nowait(event)
-            
-            # 更新统计信息
-            self.stats["events_received"] += 1
-            self.stats["events_by_type"][event.event_type] += 1
-            self.stats["events_by_source"][event.source] += 1
-            self.stats["events_by_priority"][event.priority] += 1
-            
-            logger.debug(f"事件已加入队列: {event}")
-            return True
+            if not isinstance(event, Event):
+                logger.warning(f"非法事件对象: 类型={type(event)}，内容={event}")
+                return False
+            with self.lock:
+                # 检查队列是否已满
+                if self.event_queue.full():
+                    logger.warning("事件队列已满，无法加入新事件")
+                    self.stats["events_dropped"] += 1
+                    return False
+                # 尝试将事件加入队列
+
+                self.event_queue.put_nowait(event)
+                
+                # 更新统计信息
+                self.stats["events_received"] += 1
+                self.stats["events_by_type"][event.event_type] += 1
+                self.stats["events_by_source"][event.source] += 1
+                self.stats["events_by_priority"][event.priority] += 1
+                
+                logger.debug(f"事件已加入队列: {event}")
+                return True
         except Exception as e:
             # 队列已满或其他错误
             self.stats["events_dropped"] += 1
-            logger.warning(f"事件加入队列失败: {e}")
+            logger.error(f"事件加入队列失败: {e}")
             return False
     
     def create_and_emit_event(self, event_type: str, source: str, priority: int = 0, 
@@ -344,11 +357,12 @@ class EventManager:
                 except Exception as e:
                     logger.error(f"全局事件处理器 {handler.__name__} 处理事件 {event.id} 时出错: {e}")
         
-        # 更新统计信息
-        processing_time = time.time() - start_time
-        self.stats["events_processed"] += 1
-        self.stats["processing_time"] += processing_time
-        self.stats["avg_processing_time"] = self.stats["processing_time"] / self.stats["events_processed"]
+        with self.lock:
+            # 更新统计信息
+            processing_time = time.time() - start_time
+            self.stats["events_processed"] += 1
+            self.stats["processing_time"] += processing_time
+            self.stats["avg_processing_time"] = self.stats["processing_time"] / self.stats["events_processed"]
         
         if handlers_called == 0:
             logger.warning(f"事件 {event.id} 没有匹配的处理器")
@@ -363,20 +377,22 @@ class EventManager:
         
         while self.running:
             try:
+                # 检查队列是否为空
+                if self.event_queue.empty():
+                    #logger.debug("事件队列为空，等待新事件")
+                    continue
                 # 从队列中获取事件，最多等待1秒
                 event = self.event_queue.get(timeout=1)
-                
+                    
                 # 处理事件
                 self._process_event(event)
                 
                 # 标记任务完成
                 self.event_queue.task_done()
-            except Empty:
-                # 队列为空，继续等待
-                continue
             except Exception as e:
                 logger.error(f"事件处理线程异常: {e}")
-        
+
+            time.sleep(0.1)
         logger.info(f"事件处理线程 {threading.current_thread().name} 已停止")
     
     def start(self) -> bool:

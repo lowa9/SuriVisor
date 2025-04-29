@@ -150,7 +150,7 @@ class EventDetector:
             try:
                 sources, last_sort_value = self.es_client.fetch_new_events(session_id=session_id, size = 20, last_sort_value=last_sort_value)
                 for item in sources:
-                    logger.debug(f"从ES获取到新事件: {item}")
+                    #logger.debug(f"从ES获取到新事件: {item}")
                     event = Event(
                         event_type=item['event_type'],
                         source=item.get('in_iface', 'suricata'),
@@ -191,11 +191,7 @@ class EventDetector:
             else:
                 priority = 3  # 默认为medium
 
-            self.event_manager.create_and_emit_event(
-                event_type=event.event_type,
-                source=event.source if hasattr(event, 'source') else "suricata",
-                priority=priority,
-                data=event.data if hasattr(event, 'data') else {}
-            )
+            self.event_manager.emit_event(event)
+            logger.info(f"事件已发送到事件管理器: {event}")
         except Exception as e:
             logger.error(f"生成并发送事件时发生错误: {e}") 

@@ -105,7 +105,7 @@ class ESClient:
             # 获取最新 sort 值（用于下一次 search_after）
             new_last_sort_value = hits[-1]["sort"]
             events = [hit["_source"] for hit in hits]
-            logger.debug(f"ES查询结果: {json.dumps(events, indent=2)}")
+            logger.debug(f"ES查询结果: {json.dumps(events)}")
             logger.info(f"拉取到 {len(events)} 条新事件")
 
             return events, new_last_sort_value
