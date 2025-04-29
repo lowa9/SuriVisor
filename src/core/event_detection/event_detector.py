@@ -175,22 +175,7 @@ class EventDetector:
         """
         logger.info(f"处理事件: {event}")
         # 如果事件管理器已初始化，发送告警事件
-        if self.event_manager:
-            # 导入告警工具模块
-            from src.utils.alert_utils import AlertStructure
-            
         try:
-            # 获取告警优先级
-            priority = 0
-            if hasattr(event, 'data') and event.data and "severity" in event.data:
-                severity = event.data.get("severity")
-                if isinstance(severity, str):
-                    priority = AlertStructure.get_severity_level(severity)
-                else:
-                    priority = 3  # 默认为medium
-            else:
-                priority = 3  # 默认为medium
-
             self.event_manager.emit_event(event)
             logger.info(f"事件已发送到事件管理器: {event}")
         except Exception as e:

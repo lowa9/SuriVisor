@@ -44,13 +44,13 @@ class Event:
     """
     
     def __init__(
-        self, 
-        event_type: str, 
-        source: str, 
-        timestamp: str,
-        priority: int = 0,
-        data: Optional[Dict[str, Any]] = None,
-        session_id: Optional[str] = None
+            self, 
+            event_type: str, 
+            source: str, 
+            timestamp: str,
+            severity: int = 5,
+            data: Optional[Dict[str, Any]] = None,
+            session_id: Optional[str] = None
         ):
         """
         初始化事件
@@ -58,14 +58,14 @@ class Event:
         Args:
             event_type (str): 事件类型
             source (str): 事件来源
-            priority (int): 事件优先级，数字越小优先级越高
+            severity (int): 事件优先级，数字越小优先级越高
             data (Dict[str, Any]): 事件详细信息
             timestamp (float): 事件发生的时间戳
             id: session_id
         """
         self.event_type = event_type
         self.source = source
-        self.priority = priority
+        self.severity = severity
         self.data = data or {}
         self.timestamp = timestamp
         self.id = self.event_type + '_' + timestamp + '_' + session_id if session_id else None
@@ -80,7 +80,7 @@ class Event:
         Returns:
             bool: 如果self优先级高于other，返回True
         """
-        return self.priority < other.priority
+        return self.severity < other.severity
     
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -93,7 +93,7 @@ class Event:
             "id": self.id,
             "event_type": self.event_type,
             "source": self.source,
-            "priority": self.priority,
+            "severity": self.severity,
             "timestamp": self.timestamp,
             "data": self.data
         }
@@ -105,7 +105,7 @@ class Event:
         Returns:
             str: 事件的字符串表示
         """
-        return f"Event[{self.id}]: {self.event_type} from {self.source} at {self.timestamp} (priority: {self.priority})"
+        return f"Event[{self.id}]: {self.event_type} from {self.source} at {self.timestamp} (severity: {self.severity})"
 
 
 class EventFilter:
@@ -116,7 +116,7 @@ class EventFilter:
     """
     
     def __init__(self, event_types: Optional[List[str]] = None, sources: Optional[List[str]] = None, 
-                 min_priority: Optional[int] = None, max_priority: Optional[int] = None,
+                 min_severity: Optional[int] = None, max_severity: Optional[int] = None,
                  custom_filter: Optional[Callable[[Event], bool]] = None):
         """
         初始化事件过滤器
@@ -124,14 +124,14 @@ class EventFilter:
         Args:
             event_types (List[str]): 事件类型列表，如果为None则匹配所有类型
             sources (List[str]): 事件来源列表，如果为None则匹配所有来源
-            min_priority (int): 最小优先级（包含），如果为None则无下限
-            max_priority (int): 最大优先级（包含），如果为None则无上限
+            min_severity (int): 最小优先级（包含），如果为None则无下限
+            max_severity (int): 最大优先级（包含），如果为None则无上限
             custom_filter (Callable[[Event], bool]): 自定义过滤函数
         """
         self.event_types = event_types
         self.sources = sources
-        self.min_priority = min_priority
-        self.max_priority = max_priority
+        self.min_severity = min_severity
+        self.max_severity = max_severity
         self.custom_filter = custom_filter
     
     def match(self, event: Event) -> bool:
@@ -153,11 +153,11 @@ class EventFilter:
             return False
         
         # 检查最小优先级
-        if self.min_priority is not None and event.priority < self.min_priority:
+        if self.min_severity is not None and event.severity < self.min_severity:
             return False
         
         # 检查最大优先级
-        if self.max_priority is not None and event.priority > self.max_priority:
+        if self.max_severity is not None and event.severity > self.max_severity:
             return False
         
         # 应用自定义过滤器
@@ -207,7 +207,7 @@ class EventManager:
             "events_dropped": 0,
             "events_by_type": Counter(),
             "events_by_source": Counter(),
-            "events_by_priority": Counter(),
+            "events_by_severity": Counter(),
             "processing_time": 0,
             "avg_processing_time": 0
         }
@@ -302,7 +302,7 @@ class EventManager:
                 self.stats["events_received"] += 1
                 self.stats["events_by_type"][event.event_type] += 1
                 self.stats["events_by_source"][event.source] += 1
-                self.stats["events_by_priority"][event.priority] += 1
+                self.stats["events_by_severity"][event.severity] += 1
                 
                 logger.debug(f"事件已加入队列: {event}")
                 return True
@@ -312,7 +312,7 @@ class EventManager:
             logger.error(f"事件加入队列失败: {e}")
             return False
     
-    def create_and_emit_event(self, event_type: str, source: str, priority: int = 0, 
+    def create_and_emit_event(self, event_type: str, source: str, severity: int = 0, 
                              data: Optional[Dict[str, Any]] = None) -> bool:
         """
         创建并发送事件
@@ -320,13 +320,13 @@ class EventManager:
         Args:
             event_type (str): 事件类型
             source (str): 事件来源
-            priority (int): 事件优先级
+            severity (int): 事件优先级
             data (Dict[str, Any]): 事件详细信息
             
         Returns:
             bool: 如果成功加入队列，返回True
         """
-        event = Event(event_type, source, priority, data)
+        event = Event(event_type, source, severity, data)
         return self.emit_event(event)
     
     def _process_event(self, event: Event) -> None:
@@ -459,7 +459,7 @@ class EventManager:
         # 将defaultdict转换为普通dict
         stats_copy["events_by_type"] = dict(stats_copy["events_by_type"])
         stats_copy["events_by_source"] = dict(stats_copy["events_by_source"])
-        stats_copy["events_by_priority"] = dict(stats_copy["events_by_priority"])
+        stats_copy["events_by_severity"] = dict(stats_copy["events_by_severity"])
         
         # 添加当前队列大小
         stats_copy["queue_size"] = self.event_queue.qsize()
@@ -477,7 +477,7 @@ class EventManager:
             "events_dropped": 0,
             "events_by_type": defaultdict(int),
             "events_by_source": defaultdict(int),
-            "events_by_priority": defaultdict(int),
+            "events_by_severity": defaultdict(int),
             "processing_time": 0,
             "avg_processing_time": 0
         }
