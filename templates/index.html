@@ -226,6 +226,15 @@
         </div>
 
         <div class="card">
+            <h2 class="card-title">捕获文件下载</h2>
+            <p>下载Suricata捕获的网络流量文件进行进一步分析。</p>
+            <button id="refresh-pcap-list" class="btn">刷新文件列表</button>
+            <div id="pcap-files-container">
+                <p>加载捕获文件列表...</p>
+            </div>
+        </div>
+
+        <div class="card">
             <h2 class="card-title">最近告警</h2>
             <div id="alerts-container">
                 <p>加载告警信息...</p>
@@ -241,6 +250,9 @@
             
             // 获取告警列表
             fetchAlerts();
+            
+            // 获取PCAP文件列表
+            fetchPcapFiles();
             
             // 文件选择事件
             document.getElementById('pcap-file').addEventListener('change', function(e) {
@@ -263,6 +275,9 @@
             
             // 生成系统报告
             document.getElementById('generate-report').addEventListener('click', generateSystemReport);
+            
+            // 刷新PCAP文件列表
+            document.getElementById('refresh-pcap-list').addEventListener('click', fetchPcapFiles);
         });
         
         // 获取系统状态
@@ -497,6 +512,38 @@
                 console.error('生成系统报告失败:', error);
                 showAlert('生成系统报告失败', 'danger');
             });
+        }
+        
+        // 获取PCAP文件列表
+        function fetchPcapFiles() {
+            fetch('/api/pcap/list')
+                .then(response => response.json())
+                .then(data => {
+                    const pcapFilesContainer = document.getElementById('pcap-files-container');
+                    
+                    if (data.success && data.files && data.files.length > 0) {
+                        let html = '<table>';
+                        html += '<tr><th>文件名</th><th>大小</th><th>日期</th><th>操作</th></tr>';
+                        
+                        data.files.forEach(file => {
+                            html += `<tr>
+                                <td>${file.filename}</td>
+                                <td>${file.size}</td>
+                                <td>${file.date}</td>
+                                <td><a href="/api/pcap/download/${file.filename}" class="btn" download>下载</a></td>
+                            </tr>`;
+                        });
+                        
+                        html += '</table>';
+                        pcapFilesContainer.innerHTML = html;
+                    } else {
+                        pcapFilesContainer.innerHTML = '<p>暂无捕获文件</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('获取PCAP文件列表失败:', error);
+                    document.getElementById('pcap-files-container').innerHTML = '<p>获取捕获文件列表失败</p>';
+                });
         }
         
         // 显示提示信息

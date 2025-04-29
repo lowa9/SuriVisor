@@ -282,10 +282,79 @@ def get_alerts():
         logger.error(f"获取告警列表时发生错误: {e}")
         return jsonify({"success": False, "message": f"获取告警列表时发生错误: {str(e)}"}), 500
 
+# API路由：获取可下载的PCAP文件列表
+@app.route('/api/pcap/list', methods=['GET'])
+def list_pcap_files():
+    try:
+        # 获取Suricata日志目录中的pcap文件
+        pcap_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../data/logs/suricata'))
+        os.makedirs(pcap_dir, exist_ok=True)
+        
+        # 查找所有log.pcap.*文件
+        pcap_files = []
+        for file in os.listdir(pcap_dir):
+            if file.startswith('log.pcap.'):
+                file_path = os.path.join(pcap_dir, file)
+                file_size = os.path.getsize(file_path)
+                file_time = os.path.getmtime(file_path)
+                
+                # 格式化文件大小
+                if file_size < 1024:
+                    size_str = f"{file_size} B"
+                elif file_size < 1024 * 1024:
+                    size_str = f"{file_size/1024:.2f} KB"
+                else:
+                    size_str = f"{file_size/(1024*1024):.2f} MB"
+                
+                pcap_files.append({
+                    "filename": file,
+                    "path": file_path,
+                    "size": size_str,
+                    "raw_size": file_size,
+                    "timestamp": file_time,
+                    "date": datetime.fromtimestamp(file_time).strftime("%Y-%m-%d %H:%M:%S")
+                })
+        
+        # 按时间戳排序，最新的在前面
+        pcap_files.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return jsonify({
+            "success": True,
+            "files": pcap_files,
+            "total": len(pcap_files)
+        })
+    except Exception as e:
+        logger.error(f"获取PCAP文件列表时发生错误: {e}")
+        return jsonify({"success": False, "message": f"获取PCAP文件列表时发生错误: {str(e)}"}), 500
+
+# API路由：下载PCAP文件
+@app.route('/api/pcap/download/<path:filename>', methods=['GET'])
+def download_pcap_file(filename):
+    try:
+        # 安全检查：确保文件名只包含log.pcap.*格式
+        if not filename.startswith('log.pcap.'):
+            return jsonify({"success": False, "message": "无效的文件名"}), 400
+        
+        # 获取Suricata日志目录
+        pcap_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../data/logs/suricata'))
+        
+        # 检查文件是否存在
+        file_path = os.path.join(pcap_dir, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({"success": False, "message": f"文件不存在: {filename}"}), 404
+        logger.info(f"尝试下载文件: {file_path}")
+        # 发送文件
+        return send_from_directory(pcap_dir, filename, as_attachment=True)
+    except Exception as e:
+        logger.error(f"下载PCAP文件时发生错误: {e}")
+        return jsonify({"success": False, "message": f"下载PCAP文件时发生错误: {str(e)}"}), 500
+
 # 主函数
 if __name__ == '__main__':
     # 确保必要的目录存在
     os.makedirs(os.path.join(os.path.dirname(__file__), '../data/logs'), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), '../data/logs/suricata'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(__file__), '../data/pcap'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(__file__), '../data/reports'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(__file__), '../data/alerts'), exist_ok=True)
