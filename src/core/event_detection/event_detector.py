@@ -15,8 +15,8 @@ import logging
 import json
 import threading
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
-from src.core.event_manager import EventManager
+from src.core.event_manager import EventManager,Event
+from src.core.ElasticSearch import ESClient
 
 # 创建 Logger
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class EventDetector:
     实现了对关键网络指标的监测机制，用于及时发现并报警网络异常。
     """
     
-    def __init__(self, config_file=None, event_callback=None):
+    def __init__(self, event_manager: EventManager):
         """
         初始化网络异常检测器
         
@@ -51,181 +51,20 @@ class EventDetector:
             config_file (str): 配置文件路径
             event_callback (callable): 告警回调函数，接收告警信息作为参数
         """
-        # 默认配置
-        self.config = {
-            "metrics": {
-                "packet_loss_ratio": {
-                    "description": "丢包率",
-                    "threshold": 0.05,  # 5%
-                    "window_size": 1000,  # 样本窗口大小
-                    "severity": "high",
-                    "enabled": True
-                },
-                "out_of_order_ratio": {
-                    "description": "乱序比例",
-                    "threshold": 0.1,  # 10%
-                    "window_size": 1000,
-                    "severity": "medium",
-                    "enabled": True
-                },
-                "retransmission_ratio": {
-                    "description": "重传比例",
-                    "threshold": 0.08,  # 8%
-                    "window_size": 1000,
-                    "severity": "medium",
-                    "enabled": True
-                },
-                "duplicate_ack_ratio": {
-                    "description": "重复ACK比例",
-                    "threshold": 0.1,  # 10%
-                    "window_size": 1000,
-                    "severity": "low",
-                    "enabled": True
-                },
-                "rtt_variation": {
-                    "description": "RTT变化率",
-                    "threshold": 0.5,  # 50%
-                    "window_size": 100,
-                    "severity": "medium",
-                    "enabled": True
-                },
-                "connection_failure_rate": {
-                    "description": "连接失败率",
-                    "threshold": 0.2,  # 20%
-                    "window_size": 100,
-                    "severity": "high",
-                    "enabled": True
-                },
-                "bandwidth_utilization": {
-                    "description": "带宽利用率",
-                    "threshold": 0.9,  # 90%
-                    "window_size": 60,  # 60秒
-                    "severity": "medium",
-                    "enabled": True
-                },
-                "syn_flood_detection": {
-                    "description": "SYN洪水检测",
-                    "threshold": 100,  # 每秒SYN包数
-                    "window_size": 10,  # 10秒
-                    "severity": "critical",
-                    "enabled": True
-                },
-                "icmp_flood_detection": {
-                    "description": "ICMP洪水检测",
-                    "threshold": 50,  # 每秒ICMP包数
-                    "window_size": 10,  # 10秒
-                    "severity": "high",
-                    "enabled": True
-                },
-                "fragmentation_ratio": {
-                    "description": "分片比例",
-                    "threshold": 0.2,  # 20%
-                    "window_size": 1000,
-                    "severity": "low",
-                    "enabled": True
-                }
-            },
-            "alert": {
-                "min_interval": 180,  # 最小告警间隔（秒）
-                "max_alerts_per_hour": 20,  # 每小时最大告警数
-                "alert_suppression": True,  # 是否启用告警抑制
-                "alert_aggregation": True,  # 是否启用告警聚合
-                "notification_channels": ["console", "log"]  # 告警通知渠道
-            },
-            "monitoring": {
-                "sampling_interval": 1,  # 采样间隔（秒）
-                "report_interval": 60,  # 报告间隔（秒）
-                "auto_threshold_adjustment": True,  # 是否自动调整阈值
-                "learning_period": 3600  # 学习期（秒）
-            }
-        }
-        
-        # 加载配置文件
-        if config_file and os.path.exists(config_file):
-            self.load_config(config_file)
-        
-        # 初始化指标数据结构
-        self.metrics_data = {}
-        for metric_name in self.config["metrics"]:
-            metric_config = self.config["metrics"][metric_name]
-            if metric_config["enabled"]:
-                self.metrics_data[metric_name] = {
-                    "values": deque(maxlen=metric_config["window_size"]),
-                    "alerts": [],
-                    "last_alert_time": 0,
-                    "current_value": 0,
-                    "status": "normal"
-                }
-        
-        # 告警回调函数
-        self.event_callback = event_callback
-        
         # 告警历史
         self.alert_history = []
         
         # 事件管理器
-        self.event_manager = None
+        self.event_manager = event_manager
         
         # 监控状态
-        self.monitoring_active = False
         self.monitoring_thread = None
         self.running = False  # 控制监控循环的运行标志
         
-        # 学习模式数据
-        self.learning_mode = False
-        self.learning_data = defaultdict(list)
-        self.learning_start_time = 0
-        
-        logger.info(f"初始化网络异常检测器: 监测{len(self.metrics_data)}个指标")
-    
-    def load_config(self, config_file):
-        """
-        从文件加载配置
-        
-        Args:
-            config_file (str): 配置文件路径
-            
-        Returns:
-            bool: 加载是否成功
-        """
-        try:
-            with open(config_file, 'r') as f:
-                user_config = json.load(f)
-            
-            # 合并配置
-            for section in user_config:
-                if section in self.config:
-                    if isinstance(self.config[section], dict):
-                        self.config[section].update(user_config[section])
-                    else:
-                        self.config[section] = user_config[section]
-            
-            logger.info(f"从{config_file}加载配置成功")
-            return True
-        except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
-            return False
-    
-    def save_config(self, config_file):
-        """
-        保存配置到文件
-        
-        Args:
-            config_file (str): 配置文件路径
-            
-        Returns:
-            bool: 保存是否成功
-        """
-        try:
-            with open(config_file, 'w') as f:
-                json.dump(self.config, f, indent=4)
-            logger.info(f"配置已保存到{config_file}")
-            return True
-        except Exception as e:
-            logger.error(f"保存配置文件失败: {e}")
-            return False
-    
-    def start_monitoring(self, event_manager):
+        # 初始化ES客户端
+        self.es_client = ESClient()
+
+    def start_monitoring(self):
         """
         启动监控
 
@@ -235,13 +74,11 @@ class EventDetector:
         Returns:
             bool: 启动是否成功
         """
-        if self.monitoring_active:
+        if self.running:
             logger.warning("监控已经在运行")
             return False
-        
-        self.monitoring_active = True
+
         self.running = True  # 设置运行标志
-        self.set_event_manager(event_manager)
         self.monitoring_thread = threading.Thread(target=self._monitoring_loop)
         self.monitoring_thread.daemon = True
         self.monitoring_thread.start()
@@ -256,11 +93,10 @@ class EventDetector:
         Returns:
             bool: 停止是否成功
         """
-        if not self.monitoring_active:
+        if not self.running:
             logger.warning("监控未在运行")
             return False
-        
-        self.monitoring_active = False
+
         self.running = False  # 设置运行标志为False，使监控循环退出
         if self.monitoring_thread:
             self.monitoring_thread.join(timeout=5)
@@ -268,141 +104,98 @@ class EventDetector:
         logger.info("网络异常监控已停止")
         return True
         
-    def set_event_manager(self, event_manager):
+    def _get_current_session_id(self):
         """
-        设置事件管理器实例
-        
-        Args:
-            event_manager: EventManager实例
-            
-        Returns:
-            bool: 设置是否成功
-        """
-        if event_manager is None:
-            logger.warning("提供的事件管理器为空")
-            return False
-            
-        self.event_manager = event_manager
-        logger.info("已设置事件管理器实例")
-        return True
-        
-    def get_event_handlers(self):
-        """
-        获取事件类型及其处理优先级映射
+        从会话ID文件中读取当前会话ID
         
         Returns:
-            dict: 事件类型及其优先级的映射字典
+            str: 当前会话ID，如果未找到则返回None
         """
-        # 如果事件管理器已设置，则使用其handlers属性中的事件类型
-        if self.event_manager is not None:
-            # 从事件管理器的handlers中提取事件类型
-            # 注意：event_manager.handlers是defaultdict(list)，键为事件类型
-            # 为每种事件类型分配优先级
-            handlers_dict = {}
-            for event_type in self.event_manager.handlers.keys():
-                # 为不同事件类型设置默认优先级
-                if event_type == 'alert':
-                    handlers_dict[event_type] = 0  # 最高优先级
-                elif event_type == 'anomaly':
-                    handlers_dict[event_type] = 1
-                else:
-                    handlers_dict[event_type] = 2  # 其他事件类型默认优先级
+        try:
+            # 从SuricataProcessManager创建的会话ID文件中读取
+            session_id_file = os.path.join(os.path.dirname(__file__), '../../../data/logs/suricata/session_id.conf')
             
-            # 如果没有找到任何处理器，使用默认配置
-            if not handlers_dict:
-                handlers_dict = self._get_default_handlers()
-            
-            return handlers_dict
-        
-        # 如果配置中有自定义的事件处理器映射，则使用配置中的
-        if hasattr(self, 'config') and 'event_handlers' in self.config:
-            return self.config['event_handlers']
-        
-        # 如果没有事件管理器和自定义配置，则使用默认配置
-        return self._get_default_handlers()
-        
-    def _get_default_handlers(self):
-        """
-        获取默认的事件处理器映射
-        
-        Returns:
-            dict: 默认的事件类型及其优先级的映射字典
-        """
-        return {
-            'alert': 0,      # 高优先级
-            'anomaly': 1,    # 中高优先级
-            'flow': 2,       # 中优先级
-            'http': 3,       # 低优先级
-            'dns': 3,        # 低优先级
-            'tls': 3,        # 低优先级
-            'ssh': 3         # 低优先级
-        }
-    
+            if not os.path.exists(session_id_file):
+                logger.warning(f"会话ID文件不存在: {session_id_file}")
+                return None
+                
+            with open(session_id_file, 'r') as f:
+                content = f.read().strip()
+                
+            # 解析文件内容，格式为 SURICATA_SESSION_ID=xxx
+            if content and 'SURICATA_SESSION_ID=' in content:
+                session_id = content.split('SURICATA_SESSION_ID=')[1].strip()
+                logger.info(f"从文件读取到会话ID: {session_id}")
+                return session_id
+            else:
+                logger.warning(f"会话ID文件格式不正确: {content}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"读取会话ID文件失败: {e}")
+            return None
+
     def _monitoring_loop(self):
         """
-        监控循环
+        启动基于ES的事件监控循环，持续拉取新增事件并加入事件管理器队列。
+        Args:
+            session_id (str): 会话ID
         """
-        from src.core.ElasticSearch import ESClient
-        from src.core.event_manager import EventManager
-        from src.core.event_manager.event_manager import Event
-        
-        # 初始化ES客户端
-        es_client = ESClient()
-        
-        # 确保事件管理器实例存在
+        last_sort_value = None
         if not self.event_manager:
-            logger.warning("事件管理器未设置，创建默认实例")
-            self.event_manager = EventManager()
-            self.event_manager.start()  # 确保事件管理器已启动
-        
-        # 获取事件类型及其处理优先级映射
-        # 这里使用get_event_handlers方法，该方法会优先使用event_manager中的handlers
-        event_handlers = self.get_event_handlers()
-        
-        # 记录上次查询时间
-        last_query_time = datetime.now() - timedelta(minutes=1)
-        
-        logger.info("事件检测循环已启动")
-        
+            logger.warning("未设置事件管理器实例")
+            return
+        session_id = self._get_current_session_id()
         while self.running:
             try:
-                current_time = datetime.now()
-                
-                # 查询各类型事件
-                for event_type, priority in event_handlers.items():
-                    events = es_client.query_events(
-                        event_type=event_type,
-                        start_time=last_query_time,
-                        end_time=current_time,
-                        size=100
+                sources, last_sort_value = self.es_client.fetch_new_events(session_id=session_id, size = 20, last_sort_value=last_sort_value)
+                for item in sources:
+                    logger.debug(f"从ES获取到新事件: {item}")
+                    event = Event(
+                        event_type=item['event_type'],
+                        source=item.get('in_iface', 'suricata'),
+                        data=json.loads(item['event'].get('original')),
+                        timestamp=item['timestamp'],
+                        session_id=session_id
                     )
-                    
-                    # 处理事件
-                    for event_data in events:
-                        try:
-                            # 使用事件管理器的create_and_emit_event方法创建并发送事件
-                            # 这样可以确保事件格式与事件管理器期望的一致
-                            success = self.event_manager.create_and_emit_event(
-                                event_type=event_type,
-                                source="es_client",
-                                priority=priority,
-                                data=event_data
-                            )
-                            
-                            if success:
-                                logger.debug(f"已将{event_type}事件添加到事件队列")
-                            else:
-                                logger.warning(f"添加{event_type}事件到队列失败，可能队列已满")
-                            
-                        except Exception as e:
-                            logger.error(f"处理{event_type}事件失败: {e}")
+                    logger.debug(f"新事件: {event}")
+                    self.handle_event(event) 
                 
-                # 更新上次查询时间
-                last_query_time = current_time
-                
-                # 避免过于频繁查询
-                time.sleep(1)
-                
+                time.sleep(2)
             except Exception as e:
-                logger.error(f"事件检测循环异常: {e}")
-                time.sleep(5)  # 发生异常时，暂停一段时间后重试
+                logger.error(f"监控循环发生错误: {e}")
+                time.sleep(8)  # 错误发生后等待一段时间再重试
+        
+    def handle_event(self, event: Event):
+        """
+        将event添加到队列中
+        
+        Args:
+            event (Event): 事件对象
+        """
+        logger.info(f"处理事件: {event}")
+        # 如果事件管理器已初始化，发送告警事件
+        if self.event_manager:
+            # 导入告警工具模块
+            from src.utils.alert_utils import AlertStructure
+            
+        try:
+            # 获取告警优先级
+            priority = 0
+            if hasattr(event, 'data') and event.data and "severity" in event.data:
+                severity = event.data.get("severity")
+                if isinstance(severity, str):
+                    priority = AlertStructure.get_severity_level(severity)
+                else:
+                    priority = 3  # 默认为medium
+            else:
+                priority = 3  # 默认为medium
+
+            self.event_manager.create_and_emit_event(
+                event_type=event.event_type,
+                source=event.source if hasattr(event, 'source') else "suricata",
+                priority=priority,
+                data=event.data if hasattr(event, 'data') else {}
+            )
+        except Exception as e:
+            logger.error(f"生成并发送事件时发生错误: {e}") 

@@ -16,7 +16,6 @@ import json
 import threading
 from queue import PriorityQueue, Empty
 from collections import defaultdict
-from datetime import datetime
 from typing import Dict, List, Callable, Any, Optional, Tuple
 
 # 创建 Logger
@@ -44,7 +43,15 @@ class Event:
     表示系统中发生的一个事件，包含事件类型、优先级、来源、时间戳和详细信息。
     """
     
-    def __init__(self, event_type: str, source: str, priority: int = 0, data: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, 
+        event_type: str, 
+        source: str, 
+        timestamp: str,
+        priority: int = 0,
+        data: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None
+        ):
         """
         初始化事件
         
@@ -53,15 +60,16 @@ class Event:
             source (str): 事件来源
             priority (int): 事件优先级，数字越小优先级越高
             data (Dict[str, Any]): 事件详细信息
+            timestamp (float): 事件发生的时间戳
+            id: session_id
         """
         self.event_type = event_type
         self.source = source
         self.priority = priority
         self.data = data or {}
         self.timestamp = time.time()
-        self.datetime = datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d %H:%M:%S")
-        self.id = f"{self.event_type}_{int(self.timestamp * 1000)}_{id(self)}"
-    
+        self.id = session_id
+
     def __lt__(self, other):
         """
         比较事件优先级，用于优先队列排序
@@ -87,7 +95,6 @@ class Event:
             "source": self.source,
             "priority": self.priority,
             "timestamp": self.timestamp,
-            "datetime": self.datetime,
             "data": self.data
         }
     
@@ -98,7 +105,7 @@ class Event:
         Returns:
             str: 事件的字符串表示
         """
-        return f"Event[{self.id}]: {self.event_type} from {self.source} at {self.datetime} (priority: {self.priority})"
+        return f"Event[{self.id}]: {self.event_type} from {self.source} at {self.timestamp} (priority: {self.priority})"
 
 
 class EventFilter:
@@ -198,7 +205,10 @@ class EventManager:
             "processing_time": 0,
             "avg_processing_time": 0
         }
-        
+
+        # 告警列表
+        self.alerts = []
+
         # 线程控制
         self.running = False
         self.worker_threads_list = []
@@ -436,12 +446,6 @@ class EventManager:
         stats_copy["queue_size"] = self.event_queue.qsize()
         stats_copy["queue_full_percentage"] = (self.event_queue.qsize() / self.max_queue_size) * 100
         
-        # 添加处理器信息
-        stats_copy["registered_handlers"] = {
-            "global": len(self.global_handlers),
-            "by_type": {event_type: len(handlers) for event_type, handlers in self.handlers.items()}
-        }
-        
         return stats_copy
     
     def clear_statistics(self) -> None:
@@ -459,3 +463,15 @@ class EventManager:
             "avg_processing_time": 0
         }
         logger.info("事件管理器统计信息已清除")
+
+    def get_alerts(self) -> List[Event]:
+        """
+        获取所有告警事件
+
+        Returns:
+            List[Event]: 告警事件列表
+        """
+        # 记录当前告警列表，然后清除告警列表
+        alerts = self.alerts.copy()
+        self.alerts.clear()
+        return alerts

@@ -77,7 +77,19 @@ class ResultStructure:
                 "avg_window_size": 0.0,     # 平均窗口大小
                 "avg_reassembly_time": 0.0, # 平均重组时间
             },
-            
+            # 实时分析事件管理
+            "event_logs": {
+                "events_received": 0,
+                "events_processed": 0,
+                "events_dropped": 0,
+                "events_by_type": {},
+                "events_by_source": {},
+                "events_by_priority": {},
+                "processing_time": 0,
+                "avg_processing_time": 0,
+                "queue_size": 0,
+                "queue_full_percentage":0
+            },
             # 日志路径
             "log_paths": {
                 "suricata_log": "",        # Suricata日志路径
@@ -128,6 +140,9 @@ class ResultStructure:
                 
                 # TCP流健康度指标
                 "tcp_health": result.get("tcp_health", {}),
+
+                # 实时分析事件管理
+                "event_logs": result.get("event_logs", {}),
                 
                 # 告警详情
                 "alerts": _format_alerts_for_report(result.get("alerts", [])),

@@ -566,9 +566,23 @@ class ReportGenerator:
         获取报告生成器统计信息
         
         Returns:
-            Dict[str, Any]: 统计信息字典
+            Dict[str, Any]: 统计信息字典，符合统一的结果数据结构
         """
-        return self.stats.copy()
+        # 导入ResultStructure，确保只在需要时导入
+        from src.utils.result_utils import ResultStructure
+        
+        # 创建基础结果数据结构
+        result = ResultStructure.create_base_result()
+        result["success"] = True
+        
+        # 添加报告生成器统计信息
+        result["raw_data"] = result.get("raw_data", {}) or {}
+        result["raw_data"]["report_generator"] = self.stats.copy()
+        
+        # 添加报告摘要
+        result["summary"] = f"报告生成器已生成{self.stats.get('reports_generated', 0)}个报告，包括{self.stats.get('reports_by_type', {}).get('json', 0)}个JSON报告，{self.stats.get('reports_by_type', {}).get('html', 0)}个HTML报告"
+        
+        return result
     
     def clear_statistics(self) -> None:
         """
