@@ -1,0 +1,8 @@
+# SuriVisor 依赖项
+flask>=2.0.0
+flask-socketio>=5.3.0
+python-socketio>=5.7.0
+python-engineio>=4.3.0
+werkzeug>=2.0.0
+requests>=2.25.0
+pytz>=2021.1

@@ -293,6 +293,15 @@ class SuriVisor:
         else:
             logger.info("跳过Suricata进程启动")
         
+        # 启动流量分析器
+        if self.traffic_analyzer:
+            log_dir = os.path.join(self.config["general"]["data_dir"], "logs/suricata")
+            logger.info("正在启动流量分析器...")
+            if not self.traffic_analyzer.start(log_dir):
+                logger.warning("启动流量分析器失败，但将继续启动其他组件")
+            else:
+                logger.info("流量分析器启动成功")
+        
         # 启动事件管理器
         if self.event_manager:
             self.event_manager.start()
@@ -331,6 +340,10 @@ class SuriVisor:
         # 停止事件管理器
         if self.event_manager:
             self.event_manager.stop()
+            
+        # 停止流量分析器
+        if self.traffic_analyzer:
+            self.traffic_analyzer.stop()
         
         logger.info("SuriVisor系统已停止")
         return True
@@ -367,6 +380,10 @@ class SuriVisor:
             if not result["success"]:
                 print(f"Suricata分析失败: {result.get('error', '未知错误')}")
                 return False
+                
+            # 确保流量分析器状态已更新
+            if not self.traffic_analyzer.running:
+                self.traffic_analyzer.running = True
             
             print("PCAP文件分析完成")
             
@@ -456,9 +473,15 @@ class SuriVisor:
         base_result["success"] = True
         # base_result["system_status"] = "running" if self.running else "stopped"
         
-        # 添加流量分析器报告（已经使用标准格式）
+        # 添加流量分析器报告（使用get_statistics方法获取当前累计的统计数据）
         if self.traffic_analyzer:
-            traffic_stats = self.traffic_analyzer.analyze_realtime_metrics(out_log_dir)
+            # 如果流量分析器未启动，先启动它
+            if not self.traffic_analyzer.running:
+                self.traffic_analyzer.start(out_log_dir)
+            
+            # 获取当前累计的统计数据
+            traffic_stats = self.traffic_analyzer.get_statistics()
+            
             # 整合流量分析数据
             base_result["traffic_stats"] = traffic_stats.get("traffic_stats", {})
             base_result["network_metrics"] = traffic_stats.get("network_metrics", {})

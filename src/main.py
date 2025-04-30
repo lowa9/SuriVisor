@@ -12,8 +12,10 @@ import sys
 import json
 import time
 import logging
+import asyncio
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
 
 # 添加项目根目录到Python路径
@@ -350,6 +352,24 @@ def download_pcap_file(filename):
         logger.error(f"下载PCAP文件时发生错误: {e}")
         return jsonify({"success": False, "message": f"下载PCAP文件时发生错误: {str(e)}"}), 500
 
+# 初始化SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# 实现WebSocket消息发送函数，供事件处理器调用
+def send_to_all_clients(message):
+    try:
+        # 如果消息是字典，直接发送；如果是字符串，尝试解析为JSON
+        if isinstance(message, dict):
+            data = message
+        else:
+            import json
+            data = json.loads(message)
+            
+        socketio.emit('alert', data, namespace='/')
+        logger.debug(f"已通过SocketIO发送告警消息")
+    except Exception as e:
+        logger.error(f"通过SocketIO发送告警消息失败: {e}")
+
 # 主函数
 if __name__ == '__main__':
     # 确保必要的目录存在
@@ -361,4 +381,4 @@ if __name__ == '__main__':
     
     # 启动Flask应用
     port = surivisor.config["ui"]["web_server_port"]
-    app.run(host='0.0.0.0', port=port, debug=surivisor.config["general"]["debug"])
+    socketio.run(app, host='0.0.0.0', port=port, debug=surivisor.config["general"]["debug"], allow_unsafe_werkzeug=True)

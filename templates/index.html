@@ -13,6 +13,44 @@
             color: #333;
             background-color: #f5f5f5;
         }
+        /* 实时告警通知样式 */
+        #alert-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            max-width: 400px;
+            background-color: #fadbd8;
+            border-left: 5px solid #e74c3c;
+            color: #c0392b;
+            padding: 15px;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            z-index: 1000;
+            transition: all 0.3s ease;
+            transform: translateX(120%);
+        }
+        #alert-notification.show {
+            transform: translateX(0);
+        }
+        .alert-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .alert-close {
+            cursor: pointer;
+            font-size: 18px;
+        }
+        .alert-content {
+            margin-bottom: 10px;
+        }
+        .alert-time {
+            font-size: 12px;
+            color: #7f8c8d;
+            text-align: right;
+        }
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -176,6 +214,67 @@
             color: #3498db;
         }
     </style>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 连接WebSocket
+            const socket = io();
+            
+            // 监听告警事件
+            socket.on('alert', function(data) {
+                if (data.type === 'high_alert') {
+                    showAlertNotification(data);
+                }
+            });
+            
+            // 显示告警通知
+            function showAlertNotification(alert) {
+                // 创建告警通知元素
+                const notification = document.getElementById('alert-notification') || createAlertNotification();
+                
+                // 格式化时间
+                const timestamp = new Date(alert.timestamp * 1000).toLocaleString();
+                
+                // 设置告警内容
+                notification.querySelector('.alert-title-text').textContent = `高危告警: ${alert.signature}`;
+                notification.querySelector('.alert-content').innerHTML = 
+                    `<div>严重程度: <span class="severity-high">${alert.severity}</span></div>
+                     <div>源IP: ${alert.source_ip}</div>
+                     <div>目标IP: ${alert.destination_ip}</div>`;
+                notification.querySelector('.alert-time').textContent = timestamp;
+                
+                // 显示通知
+                notification.classList.add('show');
+                
+                // 5秒后自动隐藏
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 10000);
+            }
+            
+            // 创建告警通知元素
+            function createAlertNotification() {
+                const notification = document.createElement('div');
+                notification.id = 'alert-notification';
+                notification.innerHTML = `
+                    <div class="alert-title">
+                        <span class="alert-title-text"></span>
+                        <span class="alert-close">&times;</span>
+                    </div>
+                    <div class="alert-content"></div>
+                    <div class="alert-time"></div>
+                `;
+                
+                // 添加关闭按钮事件
+                notification.querySelector('.alert-close').addEventListener('click', function() {
+                    notification.classList.remove('show');
+                });
+                
+                document.body.appendChild(notification);
+                return notification;
+            }
+        });
+    </script>
 </head>
 <body>
     <header>
@@ -195,6 +294,10 @@
             <p>启动实时流量分析，监控网络流量并检测潜在威胁。</p>
             <button id="start-online" class="btn btn-success">启动在线分析</button>
             <button id="stop-online" class="btn btn-danger">停止在线分析</button>
+            <button id="generate-report" class="btn">生成系统报告</button>
+            <div id="system-report-link" class="report-link hidden">
+                <a href="#" id="view-system-report" class="btn" target="_blank">查看系统报告</a>
+            </div>
         </div>
 
         <div class="card">
@@ -216,14 +319,6 @@
             </div>
         </div>
 
-        <div class="card">
-            <h2 class="card-title">系统报告</h2>
-            <p>生成系统状态和分析结果的综合报告。</p>
-            <button id="generate-report" class="btn">生成系统报告</button>
-            <div id="system-report-link" class="report-link hidden">
-                <a href="#" id="view-system-report" class="btn" target="_blank">查看系统报告</a>
-            </div>
-        </div>
 
         <div class="card">
             <h2 class="card-title">捕获文件下载</h2>

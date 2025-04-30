@@ -86,7 +86,17 @@ class EventHandler:
             # 根据告警严重程度执行不同操作
             if alert_severity in ['critical', 'high']:  # 高危告警
                 logger.warning(f"高危告警: {alert_signature}, 源IP: {alert_source}, 目标IP: {alert_dest}")
-                # TODO: 实现高危告警的处理逻辑，如发送邮件通知、触发自动响应等
+                
+                # 发送高危告警到WebSocket
+                self._send_alert_to_websocket({
+                    'type': 'high_alert',
+                    'timestamp': event.timestamp,
+                    'signature': alert_signature,
+                    'severity': alert_severity,
+                    'source_ip': alert_source,
+                    'destination_ip': alert_dest,
+                    'event_id': event.id
+                })
             else:  # 低危告警
                 logger.info(f"低危告警: {alert_signature}, 源IP: {alert_source}, 目标IP: {alert_dest}")
                 # TODO: 实现低危告警的处理逻辑
@@ -313,3 +323,23 @@ class EventHandler:
         """
         logger.info("处理系统性能统计")
         # TODO: 实现系统性能统计的处理逻辑
+        
+    def _send_alert_to_websocket(self, alert_data: Dict[str, Any]) -> None:
+        """
+        将告警信息发送到WebSocket
+        
+        Args:
+            alert_data (Dict[str, Any]): 告警数据
+        """
+        try:
+            import json
+            from src.utils.websocket_manager import send_to_all_clients
+            
+            # 发送到所有WebSocket客户端
+            send_to_all_clients(alert_data)
+            
+            logger.debug(f"已将告警发送到WebSocket: {alert_data['signature']}")
+        except ImportError:
+            logger.warning("WebSocket管理器未配置，无法发送实时告警")
+        except Exception as e:
+            logger.error(f"发送告警到WebSocket出错: {e}")
