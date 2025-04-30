@@ -55,8 +55,8 @@ class ResultStructure:
                 "flow_count": 0,            # 流数量
                 "tcp_flow_count": 0,         # TCP流数量
                 "udp_flow_count": 0,         # UDP流数量
+                "kernel_drop": 0,            
                 "protocol_distribution": {}, # 协议分布
-                "port_distribution": {},    # 端口分布
             },
             
             # 网络性能指标

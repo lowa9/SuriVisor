@@ -156,8 +156,6 @@ class EventHandler:
             logger.debug(f"流量信息: {flow_protocol} {flow_src_ip}:{flow_src_port} -> {flow_dst_ip}:{flow_dst_port}, "
                         f"字节数: {flow_bytes}, 包数: {flow_packets}")
             
-            # TODO: 实现流量分析逻辑
-            
             # 记录流量到数据库或文件
             self._save_flow_to_file(event)
             
@@ -174,24 +172,6 @@ class EventHandler:
         logger.info(f"处理统计事件: {event}")
         
         try:
-            # 获取统计详情
-            stats_data = event.data
-            stats_type = stats_data.get('type', '未知统计类型')
-            stats_period = stats_data.get('period', '未知时间段')
-            
-            # 根据统计类型执行不同操作
-            if stats_type == 'traffic_summary':
-                # 处理流量摘要统计
-                self._process_traffic_summary(stats_data)
-            elif stats_type == 'alert_summary':
-                # 处理告警摘要统计
-                self._process_alert_summary(stats_data)
-            elif stats_type == 'system_performance':
-                # 处理系统性能统计
-                self._process_system_performance(stats_data)
-            else:
-                logger.warning(f"未知统计类型: {stats_type}")
-            
             # 记录统计到数据库或文件
             self._save_stats_to_file(event)
             

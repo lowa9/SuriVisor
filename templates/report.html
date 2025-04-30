@@ -198,6 +198,7 @@
                 {% endif %}
             </p>
             
+            <h2>网络流量捕获</h2>
             <div class="stat-grid">
                 {% if data.traffic_stats %}
                 <div class="stat-card">
@@ -220,27 +221,9 @@
                     <div class="stat-label">udp流数量</div>
                     <div class="stat-value">{{ data.traffic_stats.udp_flow_count }}</div>
                 </div>
-                {% endif %}
-                
-                {% if data.network_metrics %}
                 <div class="stat-card">
-                    <div class="stat-label">平均往返时间</div>
-                    <div class="stat-value">{{ data.network_metrics.avg_rtt }} ms</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">带宽利用率</div>
-                    <div class="stat-value">{{ data.network_metrics.bandwidth_utilization }}%</div>
-                </div>
-                {% endif %}
-                
-                {% if data.tcp_health %}
-                <div class="stat-card">
-                    <div class="stat-label">重传比例</div>
-                    <div class="stat-value">{{ data.tcp_health.retransmission_ratio }}%</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">乱序比例</div>
-                    <div class="stat-value">{{ data.tcp_health.out_of_order_ratio }}%</div>
+                    <div class="stat-label">内核丢弃报文数</div>
+                    <div class="stat-value">{{ data.traffic_stats.kernel_drop }}</div>
                 </div>
                 {% endif %}
             </div>
@@ -267,7 +250,7 @@
                         <div class="stat-value">{{ data.event_logs.queue_size }}</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">队列满载率</div>
+                        <div class="stat-label">当前队列满载率</div>
                         <div class="stat-value">{{ data.event_logs.queue_full_percentage }}%</div>
                     </div>
                     <div class="stat-card">
@@ -276,6 +259,54 @@
                     </div>
                 {% endif %}
             </div>
+            
+            {% if data.event_logs.events_by_type %}
+            <h3>事件类型分布</h3>
+            <table>
+                <tr>
+                    <th>事件类型</th>
+                    <th>数量</th>
+                </tr>
+                {% for event_type, count in data.event_logs.events_by_type.items() %}
+                <tr>
+                    <td>{{ event_type }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+            
+            {% if data.event_logs.events_by_source %}
+            <h3>事件来源分布</h3>
+            <table>
+                <tr>
+                    <th>事件来源</th>
+                    <th>数量</th>
+                </tr>
+                {% for source, count in data.event_logs.events_by_source.items() %}
+                <tr>
+                    <td>{{ source }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+            
+            {% if data.event_logs.events_by_severity %}
+            <h3>事件严重程度分布</h3>
+            <table>
+                <tr>
+                    <th>严重程度</th>
+                    <th>数量</th>
+                </tr>
+                {% for severity, count in data.event_logs.events_by_severity.items() %}
+                <tr>
+                    <td>{{ severity }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
         </div>
         
         <!-- 数据包重组分析部分已移至系统状态摘要中 -->
@@ -395,22 +426,6 @@
             <tr>
                 <td>乱序比例</td>
                 <td>{{ data.tcp_health.out_of_order_ratio }}%</td>
-            </tr>
-            <tr>
-                <td>重复ACK比例</td>
-                <td>{{ data.tcp_health.duplicate_ack_ratio }}%</td>
-            </tr>
-            <tr>
-                <td>零窗口计数</td>
-                <td>{{ data.tcp_health.zero_window_count }}</td>
-            </tr>
-            <tr>
-                <td>平均窗口大小</td>
-                <td>{{ data.tcp_health.avg_window_size }}</td>
-            </tr>
-            <tr>
-                <td>平均重组时间</td>
-                <td>{{ data.tcp_health.avg_reassembly_time }} ms</td>
             </tr>
             {% endif %}
         </table>

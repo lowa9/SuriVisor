@@ -209,6 +209,7 @@ class EventManager:
             "events_by_source": Counter(),
             "events_by_severity": Counter(),
             "processing_time": 0,
+            "queue_size": max_queue_size,
             "avg_processing_time": 0
         }
 
@@ -461,8 +462,7 @@ class EventManager:
         stats_copy["events_by_source"] = dict(stats_copy["events_by_source"])
         stats_copy["events_by_severity"] = dict(stats_copy["events_by_severity"])
         
-        # 添加当前队列大小
-        stats_copy["queue_size"] = self.event_queue.qsize()
+        # 添加当前队列满载率
         stats_copy["queue_full_percentage"] = (self.event_queue.qsize() / self.max_queue_size) * 100
         
         return stats_copy
@@ -492,5 +492,4 @@ class EventManager:
         """
         # 记录当前告警列表，然后清除告警列表
         alerts = self.processed_alerts.copy()
-        self.processed_alerts.clear()
         return alerts

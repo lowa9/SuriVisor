@@ -458,8 +458,7 @@ class SuriVisor:
         
         # 添加流量分析器报告（已经使用标准格式）
         if self.traffic_analyzer:
-            self.traffic_analyzer.analyze_realtime_metrics(out_log_dir)
-            traffic_stats = self.traffic_analyzer.get_statistics()
+            traffic_stats = self.traffic_analyzer.analyze_realtime_metrics(out_log_dir)
             # 整合流量分析数据
             base_result["traffic_stats"] = traffic_stats.get("traffic_stats", {})
             base_result["network_metrics"] = traffic_stats.get("network_metrics", {})

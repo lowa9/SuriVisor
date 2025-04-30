@@ -53,90 +53,31 @@ class TrafficAnalyzer:
         初始化流量分析器
 
         """
+        # # 初始化流量分析器的状态和配置
+        # self.total_packets = 0      # 总数据包数
+        # self.total_bytes = 0         # 总字节数
+        # self.packet_rate = 0.0       # 数据包速率
+        # self.byte_rate = 0.0         # 字节速率
+        # self.protocol_distribution = {}  # 协议分布
+        # self.port_distribution = {}      # 端口分布
         
-        # 初始化流量分析器的状态和配置
-        self.classified_flows = {}  # 存储分类后的流量信息
-        self.total_packets = 0      # 总数据包数
-        self.total_bytes = 0         # 总字节数
-        self.packet_rate = 0.0       # 数据包速率
-        self.byte_rate = 0.0         # 字节速率
-        self.protocol_distribution = {}  # 协议分布
-        self.port_distribution = {}      # 端口分布
+        # # 网络性能指标
+        # self.network_metrics = {
+        #     "avg_rtt": 0.0,                  # 平均往返时间(ms)
+        #     "bandwidth_utilization": 0.0,    # 带宽利用率(%)
+        #     "connection_failure_rate": 0.0   # 连接失败率(%)
+        # }
         
-        # 网络性能指标
-        self.network_metrics = {
-            "avg_rtt": 0.0,                  # 平均往返时间(ms)
-            "bandwidth_utilization": 0.0,    # 带宽利用率(%)
-            "connection_failure_rate": 0.0   # 连接失败率(%)
-        }
+        # # TCP健康度指标
+        # self.tcp_health_metrics = {
+        #     "retransmission_ratio": 0.0,     # 重传比例(%)
+        #     "out_of_order_ratio": 0.0       # 乱序比例(%)
+        # }
         
-        # TCP健康度指标
-        self.tcp_health_metrics = {
-            "retransmission_ratio": 0.0,     # 重传比例(%)
-            "out_of_order_ratio": 0.0       # 乱序比例(%)
-        }
-        
-        # 告警信息
-        self.detected_alerts = []
+        # # 告警信息
+        # self.detected_alerts = []
         
         logger.info(f"初始化流量分析器") 
-    
-    def get_statistics(self):
-        """
-        获取分析统计信息
-        
-        Returns:
-            dict: 统计信息，符合统一的结果数据结构
-        """
-        # 导入ResultStructure，确保只在需要时导入
-        from src.utils.result_utils import ResultStructure
-        
-        # 创建基础结果数据结构
-        result = ResultStructure.create_base_result()
-        result["success"] = True
-        
-        # 计算各类型流量的数量
-        type_counts = defaultdict(int)
-        for flow_result in self.classified_flows.values():
-            flow_type = flow_result.get("type", "unknown")
-            type_counts[flow_type] += 1
-        
-        # 计算总体统计信息
-        total_flows = len(self.classified_flows)
-        attack_flows = sum(count for flow_type, count in type_counts.items() if flow_type != "normal")
-        
-        # 填充流量统计信息
-        result["traffic_stats"] = {
-            "total_packets": getattr(self, 'total_packets', 0),
-            "total_bytes": getattr(self, 'total_bytes', 0),
-            "packet_rate": getattr(self, 'packet_rate', 0.0),
-            "byte_rate": getattr(self, 'byte_rate', 0.0),
-            "flow_count": total_flows,
-            "protocol_distribution": getattr(self, 'protocol_distribution', {}),
-            "port_distribution": getattr(self, 'port_distribution', {}),
-            "attack_flows": attack_flows,
-            "normal_flows": type_counts.get("normal", 0),
-            "attack_types": {k: v for k, v in type_counts.items() if k != "normal"},
-            "attack_ratio": attack_flows / total_flows if total_flows > 0 else 0
-        }
-        
-        # 填充网络性能指标（如果有）
-        if hasattr(self, 'network_metrics') and self.network_metrics:
-            result["network_metrics"] = self.network_metrics
-        
-        # 填充TCP健康度指标（如果有）
-        if hasattr(self, 'tcp_health_metrics') and self.tcp_health_metrics:
-            result["tcp_health"] = self.tcp_health_metrics
-        
-        # 填充告警信息（如果有）
-        if hasattr(self, 'detected_alerts') and self.detected_alerts:
-            result["alerts"] = self.detected_alerts
-            result["alert_count"] = len(self.detected_alerts)
-        
-        # 添加结果摘要
-        result["summary"] = f"流量分析完成，共分析{total_flows}个流，其中攻击流{attack_flows}个，正常流{type_counts.get('normal', 0)}个"
-        
-        return result
     
     def analyze_realtime_metrics(self, output_log_dir: str = None) -> Dict[str, Any]:
         """
@@ -201,6 +142,7 @@ class TrafficAnalyzer:
                             stats = event.get('stats', {})
                             stats_decoder = stats.get('decoder', {})
                             stats_flow = stats.get('flow', {})
+                            stats_capture = stats.get('capture', {})
 
                             # 提取总数据包数
                             if 'pkts' in stats_decoder:
@@ -229,10 +171,14 @@ class TrafficAnalyzer:
                             if 'udp' in stats_flow:
                                 result["traffic_stats"] = result.get("traffic_stats", {}) or {}
                                 result["traffic_stats"]["udp_flow_count"] = stats_flow['udp']                    
-                        
+
+                            # 
+                            if 'kernel_drop' in stats_capture:
+                                result['traffic_stats'] = result.get('traffic_stats',{}) or {}
+                                result['traffic_stats']['kernel_drop'] = stats_capture['kernel_drop']
+                                
                         # 处理流事件，用于计算网络性能指标
                         elif event.get('event_type') == 'flow':
-                            flow_stats["total_flows"] += 1
                             
                             # 提取流信息
                             flow = event.get('flow', {})
@@ -283,16 +229,12 @@ class TrafficAnalyzer:
                 avg_rtt = sum(tcp_sessions.values()) / len(tcp_sessions)
                 result["network_metrics"] = result.get("network_metrics", {}) or {}
                 result["network_metrics"]["avg_rtt"] = round(avg_rtt, 2)
-                # 更新类属性
-                self.network_metrics["avg_rtt"] = round(avg_rtt, 2)
             
             # 2. 连接失败率
             if flow_stats["total_flows"] > 0:
                 connection_failure_rate = (flow_stats["failed_connections"] / flow_stats["total_flows"]) * 100
                 result["network_metrics"] = result.get("network_metrics", {}) or {}
                 result["network_metrics"]["connection_failure_rate"] = round(connection_failure_rate, 2)
-                # 更新类属性
-                self.network_metrics["connection_failure_rate"] = round(connection_failure_rate, 2)
             
             # 3. 带宽利用率（这需要额外信息，这里使用一个估计值）
             # 假设带宽利用率与数据包数量和字节数有关
@@ -301,8 +243,6 @@ class TrafficAnalyzer:
                 bandwidth_utilization = min(100, (result["traffic_stats"]["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
                 result["network_metrics"] = result.get("network_metrics", {}) or {}
                 result["network_metrics"]["bandwidth_utilization"] = round(bandwidth_utilization, 2)
-                # 更新类属性
-                self.network_metrics["bandwidth_utilization"] = round(bandwidth_utilization, 2)
             
             # 计算TCP健康度指标（基于stream事件）
             if stream_stats["total_flows"] > 0:
@@ -310,15 +250,11 @@ class TrafficAnalyzer:
                 retransmission_ratio = (stream_stats["retransmissions"] / stream_stats["total_flows"]) * 100
                 result["tcp_health"] = result.get("tcp_health", {}) or {}
                 result["tcp_health"]["retransmission_ratio"] = round(retransmission_ratio, 2)
-                # 更新类属性
-                self.tcp_health_metrics["retransmission_ratio"] = round(retransmission_ratio, 2)
                 
                 # 2. 乱序比例（粗略计算）
                 out_of_order_ratio = (stream_stats["out_of_order"] / stream_stats["total_flows"]) * 100
                 result["tcp_health"] = result.get("tcp_health", {}) or {}
                 result["tcp_health"]["out_of_order_ratio"] = round(out_of_order_ratio, 2)
-                # 更新类属性
-                self.tcp_health_metrics["out_of_order_ratio"] = round(out_of_order_ratio, 2)
             
             # 更新类的其他属性
             self.total_packets = result.get("traffic_stats", {}).get("total_packets", 0)
@@ -487,7 +423,7 @@ class TrafficAnalyzer:
                             
                             # 处理流事件，用于计算网络性能指标
                             elif event.get('event_type') == 'flow':
-                                flow_stats["total_flows"] += 1
+                                # flow_stats["total_flows"] += 1
                                 
                                 # 提取流信息
                                 flow = event.get('flow', {})
@@ -514,34 +450,6 @@ class TrafficAnalyzer:
                                         tcp_sessions[session_id] = duration_ms
                                     except (ValueError, TypeError) as e:
                                         logger.debug(f"无法解析流时间: {e}")
-                            
-                            # 处理TCP事件，用于计算TCP健康度指标
-                            elif event.get('event_type') == 'tcp':
-                                tcp_stats["total_packets"] += 1
-                                tcp = event.get('tcp', {})
-                                
-                                # 检查是否为重传包
-                                if tcp.get('retransmission', False):
-                                    tcp_stats["retransmissions"] += 1
-                                
-                                # 检查是否为乱序包
-                                if tcp.get('out_of_order', False):
-                                    tcp_stats["out_of_order"] += 1
-                                
-                                # 检查是否为重复ACK
-                                if tcp.get('duplicate_ack', False):
-                                    tcp_stats["duplicate_acks"] += 1
-
-                                else:
-                                    # 记录窗口大小（非零）
-                                    window_size = tcp.get('window', 0)
-                                    if window_size > 0:
-                                        tcp_stats["window_sizes"].append(window_size)
-                                
-                                # 记录重组时间（如果有）
-                                if 'reassembly_time' in tcp:
-                                    tcp_stats["reassembly_times"].append(tcp['reassembly_time'])
-                                
 
                         except json.JSONDecodeError:
                             logger.warning(f"无法解析JSON行: {line}")
@@ -553,16 +461,12 @@ class TrafficAnalyzer:
                     avg_rtt = sum(tcp_sessions.values()) / len(tcp_sessions)
                     result["network_metrics"] = result.get("network_metrics", {}) or {}
                     result["network_metrics"]["avg_rtt"] = round(avg_rtt, 2)
-                    # 更新类属性
-                    self.network_metrics["avg_rtt"] = round(avg_rtt, 2)
                 
                 # 2. 连接失败率
                 if flow_stats["total_flows"] > 0:
                     connection_failure_rate = (flow_stats["failed_connections"] / flow_stats["total_flows"]) * 100
                     result["network_metrics"] = result.get("network_metrics", {}) or {}
                     result["network_metrics"]["connection_failure_rate"] = round(connection_failure_rate, 2)
-                    # 更新类属性
-                    self.network_metrics["connection_failure_rate"] = round(connection_failure_rate, 2)
                 
                 # 4. 带宽利用率（这需要额外信息，这里使用一个估计值）
                 # 假设带宽利用率与数据包数量和字节数有关
@@ -571,8 +475,6 @@ class TrafficAnalyzer:
                     bandwidth_utilization = min(100, (result["traffic_stats"]["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
                     result["network_metrics"] = result.get("network_metrics", {}) or {}
                     result["network_metrics"]["bandwidth_utilization"] = round(bandwidth_utilization, 2)
-                    # 更新类属性
-                    self.network_metrics["bandwidth_utilization"] = round(bandwidth_utilization, 2)
                 
                 # 计算TCP健康度指标
                 if tcp_stats["total_packets"] > 0:
@@ -580,34 +482,24 @@ class TrafficAnalyzer:
                     retransmission_ratio = (tcp_stats["retransmissions"] / tcp_stats["total_packets"]) * 100
                     result["tcp_health"] = result.get("tcp_health", {}) or {}
                     result["tcp_health"]["retransmission_ratio"] = round(retransmission_ratio, 2)
-                    # 更新类属性
-                    self.tcp_health_metrics["retransmission_ratio"] = round(retransmission_ratio, 2)
                     
                     # 2. 乱序比例
                     out_of_order_ratio = (tcp_stats["out_of_order"] / tcp_stats["total_packets"]) * 100
                     result["tcp_health"]["out_of_order_ratio"] = round(out_of_order_ratio, 2)
-                    # 更新类属性
-                    self.tcp_health_metrics["out_of_order_ratio"] = round(out_of_order_ratio, 2)
                     
                     # 3. 重复ACK比例
                     duplicate_ack_ratio = (tcp_stats["duplicate_acks"] / tcp_stats["total_packets"]) * 100
                     result["tcp_health"]["duplicate_ack_ratio"] = round(duplicate_ack_ratio, 2)
-                    # 更新类属性
-                    self.tcp_health_metrics["duplicate_ack_ratio"] = round(duplicate_ack_ratio, 2)
                 
                 # 5. 平均窗口大小
                 if tcp_stats["window_sizes"]:
                     avg_window_size = sum(tcp_stats["window_sizes"]) / len(tcp_stats["window_sizes"])
                     result["tcp_health"]["avg_window_size"] = int(avg_window_size)
-                    # 更新类属性
-                    self.tcp_health_metrics["avg_window_size"] = int(avg_window_size)
                 
                 # 6. 平均重组时间
                 if tcp_stats["reassembly_times"]:
                     avg_reassembly_time = sum(tcp_stats["reassembly_times"]) / len(tcp_stats["reassembly_times"])
                     result["tcp_health"]["avg_reassembly_time"] = round(avg_reassembly_time, 2)
-                    # 更新类属性
-                    self.tcp_health_metrics["avg_reassembly_time"] = round(avg_reassembly_time, 2)
                 
                 # 更新类的其他属性
                 self.total_packets = result["traffic_stats"].get("total_packets", 0)

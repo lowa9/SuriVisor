@@ -7,6 +7,7 @@ data/logs/suricata/log.pcap.*
 data/reports
 data/stats
 data/pcap
+data/flows
 src/ui/dashboard/node_modules
 docs
 venv
