@@ -24,14 +24,32 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # 导入SuriVisor类
 from src.SuriVisor import SuriVisor
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                   handlers=[
-                       logging.FileHandler(os.path.join(os.path.dirname(__file__), '../data/logs/web_server.log')),
-                       logging.StreamHandler()
-                   ])
-logger = logging.getLogger("WebServer")
+# 创建 Logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # 全局最低级别（DEBUG）
+
+# --- 文件处理器（记录所有 DEBUG 及以上日志）---
+file_handler = logging.FileHandler(os.path.join(os.path.dirname(__file__),'../data/logs/surivisor.log'), mode='a')
+file_handler.setLevel(logging.DEBUG)  # 文件记录 DEBUG+
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# # --- 控制台处理器（只显示 INFO 及以上日志）---
+# console_handler = logging.StreamHandler()
+# console_handler.setLevel(logging.INFO)  # 控制台只显示 INFO+
+# console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
+# 添加处理器
+logger.addHandler(file_handler)
+# logger.addHandler(console_handler)
+
+# # 配置日志
+# logging.basicConfig(level=logging.INFO, 
+#                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#                    handlers=[
+#                        logging.FileHandler(os.path.join(os.path.dirname(__file__), '../data/logs/web_server.log')),
+#                        logging.StreamHandler()
+#                    ])
+# logger = logging.getLogger("WebServer")
 
 # 创建Flask应用
 app = Flask(__name__, 
@@ -212,7 +230,7 @@ def generate_system_report():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_filename = f"system_report_{timestamp}.{report_type}"
         report_path = os.path.join(os.path.dirname(__file__), f'../data/reports/{report_filename}')
-        
+        logger.info(f"报告路径: {report_path}")
         # 调用SuriVisor的报告生成方法
         report_file = surivisor.generate_report(output_file=report_path, report_type=report_type)
         

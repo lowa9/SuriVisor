@@ -305,7 +305,7 @@ class EventManager:
                 self.stats["events_by_source"][event.source] += 1
                 self.stats["events_by_severity"][event.severity] += 1
                 
-                logger.debug(f"事件已加入队列: {event}")
+                #logger.debug(f"事件已加入队列: {event}")
                 return True
         except Exception as e:
             # 队列已满或其他错误
@@ -368,10 +368,10 @@ class EventManager:
             self.stats["processing_time"] += processing_time
             self.stats["avg_processing_time"] = self.stats["processing_time"] / self.stats["events_processed"]
         
-        if handlers_called == 0:
-            logger.warning(f"事件 {event.id} 没有匹配的处理器")
-        else:
-            logger.debug(f"事件 {event.id} 已处理，调用了 {handlers_called} 个处理器，耗时 {processing_time:.6f} 秒")
+        # if handlers_called == 0:
+        #     logger.warning(f"事件 {event.id} 没有匹配的处理器")
+        # else:
+        #     logger.debug(f"事件 {event.id} 已处理，调用了 {handlers_called} 个处理器，耗时 {processing_time:.6f} 秒")
     
     def _worker_thread(self) -> None:
         """

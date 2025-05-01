@@ -163,8 +163,8 @@ class EventHandler:
             flow_packets = flow_data.get('packets', 0)
             
             # 记录流量信息
-            logger.debug(f"流量信息: {flow_protocol} {flow_src_ip}:{flow_src_port} -> {flow_dst_ip}:{flow_dst_port}, "
-                        f"字节数: {flow_bytes}, 包数: {flow_packets}")
+            #logger.debug(f"流量信息: {flow_protocol} {flow_src_ip}:{flow_src_port} -> {flow_dst_ip}:{flow_dst_port}, "
+            #            f"字节数: {flow_bytes}, 包数: {flow_packets}")
             
             # 记录流量到数据库或文件
             self._save_flow_to_file(event)

@@ -158,7 +158,7 @@ class EventDetector:
                         timestamp=item['timestamp'],
                         session_id=session_id
                     )
-                    logger.debug(f"新事件: {event}")
+                    #logger.debug(f"新事件: {event}")S
                     self.handle_event(event) 
                 
                 time.sleep(2)
@@ -173,10 +173,10 @@ class EventDetector:
         Args:
             event (Event): 事件对象
         """
-        logger.info(f"处理事件: {event}")
+        #logger.info(f"处理事件: {event}")
         # 如果事件管理器已初始化，发送告警事件
         try:
             self.event_manager.emit_event(event)
-            logger.info(f"事件已发送到事件管理器: {event}")
+            #logger.info(f"事件已发送到事件管理器: {event}")
         except Exception as e:
             logger.error(f"生成并发送事件时发生错误: {e}") 
