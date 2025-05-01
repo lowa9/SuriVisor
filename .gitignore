@@ -8,6 +8,8 @@ data/reports
 data/stats
 data/pcap
 data/flows
+data/anomalies
+data/alerts
 src/ui/dashboard/node_modules
 docs
 venv

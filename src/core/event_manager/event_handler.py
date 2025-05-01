@@ -151,26 +151,26 @@ class EventHandler:
         """
         logger.info(f"处理流量事件: {event}")
         
-        try:
-            # 获取流量详情
-            flow_data = event.data
-            flow_protocol = flow_data.get('protocol', '未知协议')
-            flow_src_ip = flow_data.get('src_ip', '未知源IP')
-            flow_dst_ip = flow_data.get('dst_ip', '未知目标IP')
-            flow_src_port = flow_data.get('src_port', 0)
-            flow_dst_port = flow_data.get('dst_port', 0)
-            flow_bytes = flow_data.get('bytes', 0)
-            flow_packets = flow_data.get('packets', 0)
+        # try:
+        #     # 获取流量详情
+        #     flow_data = event.data
+        #     flow_protocol = flow_data.get('protocol', '未知协议')
+        #     flow_src_ip = flow_data.get('src_ip', '未知源IP')
+        #     flow_dst_ip = flow_data.get('dst_ip', '未知目标IP')
+        #     flow_src_port = flow_data.get('src_port', 0)
+        #     flow_dst_port = flow_data.get('dst_port', 0)
+        #     flow_bytes = flow_data.get('bytes', 0)
+        #     flow_packets = flow_data.get('packets', 0)
             
-            # 记录流量信息
-            #logger.debug(f"流量信息: {flow_protocol} {flow_src_ip}:{flow_src_port} -> {flow_dst_ip}:{flow_dst_port}, "
-            #            f"字节数: {flow_bytes}, 包数: {flow_packets}")
+        #     记录流量信息
+        #     logger.debug(f"流量信息: {flow_protocol} {flow_src_ip}:{flow_src_port} -> {flow_dst_ip}:{flow_dst_port}, "
+        #                f"字节数: {flow_bytes}, 包数: {flow_packets}")
             
-            # 记录流量到数据库或文件
-            self._save_flow_to_file(event)
+        #     # 记录流量到数据库或文件
+        #     self._save_flow_to_file(event)
             
-        except Exception as e:
-            logger.error(f"处理流量事件出错: {e}")
+        # except Exception as e:
+        #     logger.error(f"处理流量事件出错: {e}")
     
     def handle_stats_event(self, event: Event) -> None:
         """
@@ -181,12 +181,12 @@ class EventHandler:
         """
         logger.info(f"处理统计事件: {event}")
         
-        try:
-            # 记录统计到数据库或文件
-            self._save_stats_to_file(event)
+        # try:
+        #     # 记录统计到数据库或文件
+        #     self._save_stats_to_file(event)
             
-        except Exception as e:
-            logger.error(f"处理统计事件出错: {e}")
+        # except Exception as e:
+        #     logger.error(f"处理统计事件出错: {e}")
     
     def _save_alert_to_file(self, event: Event) -> None:
         """
@@ -238,7 +238,7 @@ class EventHandler:
             # 使用AlertStructure保存告警
             if hasattr(event, 'data') and isinstance(event.data, dict):
                 # 保存标准化的告警数据
-                file_path = AlertStructure.save_alert_to_file(event.data, anomalies_dir)
+                file_path = AlertStructure.save_alert_to_file(event.data, anomalies_dir, category="anomaly")
                 if file_path:
                     logger.debug(f"异常事件已保存到文件: {file_path}")
                     return

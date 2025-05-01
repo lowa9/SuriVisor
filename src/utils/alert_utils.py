@@ -152,14 +152,16 @@ class AlertStructure:
         try:
             # 提取异常信息
             anomaly_data = event_data.get("anomaly", {})
-            anomaly_type = anomaly_data.get("type", "未知异常")
+            anomaly_type = anomaly_data.get("app_proto", "未知异常") 
             # 创建标准告警
             return AlertStructure.create_alert(
-                signature=f"异常检测: {anomaly_type}",
+                signature=f"异常:{anomaly_type}",
                 severity="medium",
-                category="异常检测",
+                category=anomaly_data.get("event", "未知异常"),
                 src_ip=event_data.get("src_ip", ""),
+                src_port=event_data.get("src_port", ""),
                 dest_ip=event_data.get("dest_ip", ""),
+                dest_port=event_data.get("dest_port", ""),
                 protocol=event_data.get("proto", ""),
                 description=f"检测到异常行为: {anomaly_type} ",
                 details={
@@ -197,7 +199,7 @@ class AlertStructure:
         return severity_levels.get(severity.lower(), 3)  # 默认为medium (3)
     
     @staticmethod
-    def save_alert_to_file(alert: Dict[str, Any], directory: str = None) -> str:
+    def save_alert_to_file(alert: Dict[str, Any], directory: str = None, category: str = "alert") -> str:
         """
         将告警保存到文件
         
@@ -217,7 +219,7 @@ class AlertStructure:
             os.makedirs(directory, exist_ok=True)
             
             # 生成文件名
-            alert_id = alert.get("id", f"alert_{int(time.time() * 1000)}")
+            alert_id = alert.get("id", f"{category}_{int(time.time() * 1000)}")
             file_path = os.path.join(directory, f"{alert_id}.json")
             
             # 保存到文件

@@ -177,7 +177,7 @@ class SuriVisor:
                 
             # 导入并初始化事件处理器
             from src.core.event_manager.event_handler import EventHandler
-            self.event_handler = EventHandler(self.event_handler)
+            self.event_handler = EventHandler(self.event_manager)
             
             # 注册各类事件处理器
             logger.info("注册事件处理器...")
@@ -216,10 +216,10 @@ class SuriVisor:
                     template_dir=templates_dir
                 )
 
+            logger.info("SuriVisor系统初始化完成")
+
         except Exception as e:
             logger.error(f"初始化组件失败: {e}")
-
-        logger.info("SuriVisor系统初始化完成")
 
     def load_config(self, config_file):
         """
@@ -329,10 +329,6 @@ class SuriVisor:
         # 设置停止标志
         self.running = False
         
-        # 停止Suricata
-        if self.suricata_manager:
-            self.suricata_manager.stop()
-        
         # 停止异常检测
         if self.event_detector:
             self.event_detector.stop_monitoring()
@@ -345,6 +341,10 @@ class SuriVisor:
         if self.traffic_analyzer:
             self.traffic_analyzer.stop()
         
+        # 停止Suricata
+        if self.suricata_manager:
+            self.suricata_manager.stop()
+
         logger.info("SuriVisor系统已停止")
         return True
 
@@ -466,22 +466,15 @@ class SuriVisor:
         """
         # 导入ResultStructure，确保只在需要时导入
         from src.utils.result_utils import ResultStructure
-        # 设置日志目录
-        out_log_dir = os.path.join(self.config["general"]["data_dir"], "logs/suricata")
         # 创建基础结果数据结构
         base_result = ResultStructure.create_base_result()
         base_result["success"] = True
         # base_result["system_status"] = "running" if self.running else "stopped"
         
         # 添加流量分析器报告（使用get_statistics方法获取当前累计的统计数据）
-        if self.traffic_analyzer:
-            # 如果流量分析器未启动，先启动它
-            if not self.traffic_analyzer.running:
-                self.traffic_analyzer.start(out_log_dir)
-            
+        if self.traffic_analyzer:    
             # 获取当前累计的统计数据
-            traffic_stats = self.traffic_analyzer.get_statistics()
-            
+            traffic_stats = self.traffic_analyzer.analyze_realtime_metrics()
             # 整合流量分析数据
             base_result["traffic_stats"] = traffic_stats.get("traffic_stats", {})
             base_result["network_metrics"] = traffic_stats.get("network_metrics", {})

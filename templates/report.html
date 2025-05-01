@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SuriVisor 威胁分析报告</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --primary-color: #2c3e50;
@@ -202,11 +203,19 @@
             <div class="stat-grid">
                 {% if data.traffic_stats %}
                 <div class="stat-card">
-                    <div class="stat-label">总数据包数</div>
+                    <div class="stat-label">捕获数据包总数</div>
                     <div class="stat-value">{{ data.traffic_stats.total_packets }}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">总字节数</div>
+                    <div class="stat-label">内核丢弃报文数</div>
+                    <div class="stat-value">{{ data.traffic_stats.kernel_drop }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">解码器解码包数</div>
+                    <div class="stat-value">{{ data.traffic_stats.decoder_packets }}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">解码总字节数</div>
                     <div class="stat-value">{{ data.traffic_stats.total_bytes }}</div>
                 </div>
                 <div class="stat-card">
@@ -221,12 +230,45 @@
                     <div class="stat-label">udp流数量</div>
                     <div class="stat-value">{{ data.traffic_stats.udp_flow_count }}</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">内核丢弃报文数</div>
-                    <div class="stat-value">{{ data.traffic_stats.kernel_drop }}</div>
-                </div>
                 {% endif %}
             </div>
+            
+            {% if data.traffic_stats.protocol_distribution %}
+            <h3>应用层协议分布统计</h3>
+            <!-- 按流量的协议分布 -->
+            {% if data.traffic_stats.protocol_distribution.by_flow %}
+            <h4>按流(flow)个数的协议分布</h4>
+            <table>
+                <tr>
+                    <th>协议</th>
+                    <th>流量数</th>
+                </tr>
+                {% for protocol, count in data.traffic_stats.protocol_distribution.by_flow.items() %}
+                <tr>
+                    <td>{{ protocol }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+            
+            <!-- 按事务的协议分布 -->
+            {% if data.traffic_stats.protocol_distribution.by_transactions %}
+            <h4>按事务(tx)次数的协议分布</h4>
+            <table>
+                <tr>
+                    <th>协议</th>
+                    <th>事务数</th>
+                </tr>
+                {% for protocol, count in data.traffic_stats.protocol_distribution.by_transactions.items() %}
+                <tr>
+                    <td>{{ protocol }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+            {% endif %}
         </div>
         
         <div class="summary-box">

@@ -38,7 +38,7 @@ class ResultStructure:
         """
         return {
             # 基础状态
-            "success": False,                # 分析是否成功
+            "success": "False",                # 分析是否成功
             "timestamp": time.time(),       # 时间戳
             "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # 格式化时间
             
@@ -48,28 +48,29 @@ class ResultStructure:
             
             # 流量统计
             "traffic_stats": {
-                "total_packets": 0,         # 总数据包数
+                "total_packets": 0,       # 网口捕获数据包数
+                "kernel_drop": 0,           # 内核丢弃数量
+                "decoder_packets": 0,       # 解码器解码包数
                 "total_bytes": 0,           # 总字节数
-                "packet_rate": 0.0,         # 数据包速率(包/秒)
-                "byte_rate": 0.0,           # 字节速率(字节/秒)
                 "flow_count": 0,            # 流数量
                 "tcp_flow_count": 0,         # TCP流数量
-                "udp_flow_count": 0,         # UDP流数量
-                "kernel_drop": 0,            
+                "udp_flow_count": 0,         # UDP流数量      
                 "protocol_distribution": {}, # 协议分布
             },
             
             # 网络性能指标
             "network_metrics": {
-                "avg_rtt": 0.0,             # 平均往返时间(ms)
-                "bandwidth_utilization": 0.0, # 带宽利用率
+                "avg_rtt": 0.0,                 # 平均往返时间(ms)
                 "connection_failure_rate": 0.0, # 连接失败率
+                "kernel_drop_ratio": 0.0,       # 内核丢包率(%)
+                "bandwidth_utilization": 0.0,   # 带宽利用率
             },
             
             # TCP流健康度指标
             "tcp_health": {
-                "retransmission_ratio": 0.0, # 重传比例
-                "out_of_order_ratio": 0.0,  # 乱序比例
+                "session_reuse_ratio": 0.0,
+                "abnormal_ack_ratio": 0.0,
+                "reassembly_fail_rate": 0.0,
             },
 
             # 实时分析事件管理

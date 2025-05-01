@@ -55,38 +55,46 @@ class TrafficAnalyzer:
         # 初始化流量分析器的状态和配置
         self.running = False                # 是否正在运行
         self.eve_json_path = None           # eve.json文件路径
-        self.initial_line_count = 0         # 初始行数
+        self.initial_line_count_online = 0         # 初始行数
         self.last_read_time = None          # 上次读取时间
+
+        # 初始化流量分析器的状态
+        self.reset()
         
+        logger.info("初始化流量分析器") 
+    
+    def reset(self):
+        """
+        重置流量分析器的状态
+        """
         # 流量统计数据
         self.traffic_stats = {
-            "total_packets": 0,              # 总数据包数
-            "total_bytes": 0,               # 总字节数
+            "total_packets": 0,           # 总数据包数
+            "kernel_drop": 0,               # 内核丢包数
+            "decoder_packets": 0,           # 解码器解码包数
+            "total_bytes": 0,               # 解码器解码总字节数
             "flow_count": 0,                # 总流量数
             "tcp_flow_count": 0,            # TCP流量数
             "udp_flow_count": 0,            # UDP流量数
-            "kernel_drop": 0                # 内核丢包数
+            "protocol_distribution": {},    # 协议分布
         }
         
         # 网络性能指标
         self.network_metrics = {
             "avg_rtt": 0.0,                  # 平均往返时间(ms)
+            "connection_failure_rate": 0.0,   # 连接失败率(%)
+            "kernel_drop_ratio": 0.0,        # 内核丢包率(%)
             "bandwidth_utilization": 0.0,    # 带宽利用率(%)
-            "connection_failure_rate": 0.0   # 连接失败率(%)
         }
         
         # TCP健康度指标
         self.tcp_health = {
-            "retransmission_ratio": 0.0,     # 重传比例(%)
-            "out_of_order_ratio": 0.0        # 乱序比例(%)
+            "session_reuse_ratio": 0.0,
+            "abnormal_ack_ratio": 0.0,
+            "reassembly_fail_rate": 0.0,
         }
-        
-        # 告警信息
-        self.alerts = []
-        self.alert_count = 0
-        
-        logger.info("初始化流量分析器") 
-    
+
+
     def start(self, output_log_dir: str = None) -> bool:
         """
         启动流量分析器，初始化分析状态
@@ -110,33 +118,29 @@ class TrafficAnalyzer:
         # 记录当前eve.json文件的行数，用于后续只读取新增内容
         try:
             with open(self.eve_json_path, 'r') as f:
-                self.initial_line_count = sum(1 for _ in f)
-            logger.info(f"记录eve.json初始行数: {self.initial_line_count}")
+                self.initial_line_count_online = sum(1 for _ in f)
+            logger.info(f"记录eve.json初始行数: {self.initial_line_count_online}")
             
-            # 重置统计数据
-            self.traffic_stats = {
-                "total_packets": 0,
-                "total_bytes": 0,
-                "flow_count": 0,
-                "tcp_flow_count": 0,
-                "udp_flow_count": 0,
-                "kernel_drop": 0
-            }
+            # # 重置统计数据
+            # self.traffic_stats = {
+            #     "total_packets": 0,
+            #     "total_bytes": 0,
+            #     "flow_count": 0,
+            #     "tcp_flow_count": 0,
+            #     "udp_flow_count": 0,
+            #     "kernel_drop": 0
+            # }
             
-            self.network_metrics = {
-                "avg_rtt": 0.0,
-                "bandwidth_utilization": 0.0,
-                "connection_failure_rate": 0.0
-            }
+            # self.network_metrics = {
+            #     "avg_rtt": 0.0,
+            #     "bandwidth_utilization": 0.0,
+            #     "connection_failure_rate": 0.0
+            # }
             
-            self.tcp_health = {
-                "retransmission_ratio": 0.0,
-                "out_of_order_ratio": 0.0
-            }
-            
-            self.alerts = []
-            self.alert_count = 0
-            
+            # self.tcp_health = {
+            #     "retransmission_ratio": 0.0,
+            #     "out_of_order_ratio": 0.0
+            # }
             # 设置运行状态
             self.running = True
             self.last_read_time = datetime.now()
@@ -163,11 +167,55 @@ class TrafficAnalyzer:
         logger.info("流量分析器已停止")
         return True
     
+    def _get_suricata_counters(self) -> Dict[str, Any]:
+        """
+        使用suricatasc命令获取Suricata计数器数据
+        
+        Returns:
+            Dict[str, Any]: Suricata计数器数据，格式化后的结构
+        """
+        try:
+            # 执行suricatasc命令获取计数器数据
+            cmd = ["suricatasc", "-c", "dump-counters"]
+            logger.debug(f"执行命令: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            stdout, stderr = process.communicate()
+            
+            if process.returncode != 0:
+                logger.error(f"获取Suricata计数器失败: {stderr}")
+                return {}
+            
+            # 解析JSON输出
+            try:
+                counters_data = json.loads(stdout)
+                logger.debug("成功获取Suricata计数器数据")
+                
+                if "message" in counters_data and isinstance(counters_data.get("message"), dict):
+                    return counters_data
+                else:
+                    logger.warning("Suricata计数器数据结构不符合预期")
+                    return {}
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"解析Suricata计数器数据失败: {e}")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"获取Suricata计数器时发生错误: {e}")
+            return {}
+    
     def analyze_realtime_metrics(self, output_log_dir: str = None) -> Dict[str, Any]:
         """
         实时分析网络性能指标和TCP健康度指标
         
-        从eve.json文件中提取网络性能指标和TCP健康度指标，用于实时监控
+        使用suricatasc命令获取实时计数器数据，并从eve.json文件中提取流和stream事件，用于实时监控
         
         Args:
             output_log_dir: 日志输出目录，包含eve.json文件
@@ -177,48 +225,95 @@ class TrafficAnalyzer:
         """
         # 如果分析器未启动，则尝试启动
         if not self.running:
-            if not self.start(output_log_dir):
-                return {"success": False, "error": "流量分析器未启动且无法自动启动"}
+            logger.warning("流量分析器未在运行")
+            return self.get_statistics()
         
         # 如果提供了新的输出目录，更新eve.json路径
         if output_log_dir:
             eve_json_path = os.path.join(output_log_dir, "eve.json")
             if eve_json_path != self.eve_json_path:
                 self.eve_json_path = eve_json_path
-                self.initial_line_count = 0  # 重置初始行数
         
         if not os.path.exists(self.eve_json_path):
             logger.error(f"eve.json文件不存在: {self.eve_json_path}")
             return {"success": False, "error": f"eve.json文件不存在: {self.eve_json_path}"}
         
         try:
-            # 用于计算网络性能指标的临时数据结构
-            tcp_sessions = {}  # 存储TCP会话信息，用于计算RTT
-            stream_stats = {   # 流事件统计信息
-                "total_flows": self.traffic_stats.get("flow_count", 0),
-                "retransmissions": 0,  # 重传事件数
-                "out_of_order": 0      # 乱序事件数
-            }
-            flow_stats = {     # 流量统计信息
-                "total_flows": self.traffic_stats.get("flow_count", 0),
-                "failed_connections": 0,
-                "total_packets": self.traffic_stats.get("total_packets", 0)
-            }
-            
-            # 导入ResultStructure，确保只在需要时导入
-            from src.utils.result_utils import ResultStructure
-            
-            # 创建基础结果数据结构
-            result = ResultStructure.create_base_result()
-            result["success"] = True
-            
             # 记录本次分析的开始时间
             analysis_start_time = datetime.now()
             
-            # 从上次读取的位置开始读取新增事件
+            # 使用suricatasc获取实时计数器数据
+            counters_data = self._get_suricata_counters()
+            
+            # 如果成功获取到计数器数据，更新流量统计信息
+            if "message" in counters_data and isinstance(counters_data.get("message"), dict):
+                counters = counters_data.get("message", {})
+                #logger.debug("counters: %s", counters)
+                # 更新总数据包数和字节数
+                capture = counters.get("capture", {})
+                decoder = counters.get("decoder", {})
+                flow = counters.get("flow", {})
+                app_layer = counters.get("app_layer", {})
+
+                if capture:
+                    # 提取总数据包数
+                    total_packets = capture.get("kernel_packets", 0)
+                    self.traffic_stats["total_packets"] = total_packets
+                    
+                    kernel_drop = capture.get("kernel_drops", 0)
+                    self.traffic_stats["kernel_drop"] = kernel_drop
+                    
+                if decoder:
+                    # 提取解码器解码包数和总字节数
+                    decoder_packets = decoder.get("pkts", 0)
+                    self.traffic_stats["decoder_packets"] = decoder_packets 
+                    total_bytes = decoder.get("bytes", 0)
+                    self.traffic_stats["total_bytes"] = total_bytes
+                
+                if flow:
+                    # 提取总流量数
+                    flow_count = flow.get("total", 0)
+                    self.traffic_stats["flow_count"] = flow_count
+                    # TCP和UDP流量数
+                    tcp_flows = flow.get("tcp", 0)
+                    self.traffic_stats["tcp_flow_count"] = tcp_flows
+
+                    udp_flows = flow.get("udp", 0)
+                    self.traffic_stats["udp_flow_count"] = udp_flows
+
+                if app_layer:
+                    # 提取协议分布信息
+                    protocol_distribution = {
+                        "by_flow": {k: v for k, v in app_layer["flow"].items() if v > 0},
+                        "by_transactions": {k: v for k, v in app_layer["tx"].items() if v > 0}
+                    }
+                    self.traffic_stats["protocol_distribution"] = protocol_distribution
+                
+                # 更新TCP健康度指标
+                tcp = counters.get("tcp", {})
+                if tcp:
+                    session_reuse_ratio = (tcp['ssn_from_cache'] + tcp['ssn_from_pool']) / tcp['sessions']  
+                    self.tcp_health["session_reuse_ratio"] = session_reuse_ratio
+                    # 异常ACK比例（需监控基线）
+                    abnormal_ack_ratio = tcp['ack_unseen_data'] / tcp['sessions']  
+                    self.tcp_health["abnormal_ack_ratio"] = abnormal_ack_ratio
+                    # 重组失败率（理想为0）
+                    reassembly_fail_rate = tcp['reassembly_gap'] / tcp['sessions']  
+                    self.tcp_health["reassembly_fail_rate"] = reassembly_fail_rate
+
+            # 以上是通过suricatasc获取的实时计数器数据，以下是通过分析eve.json文件获取的流和stream事件数据
+            
+            # 用于计算网络性能指标的临时数据结构
+            tcp_sessions = {}  # 存储TCP会话信息，用于计算RTT
+            flow_stats = {     # 流量统计信息
+                "total_flows": self.traffic_stats.get("flow_count", 0),
+                "failed_connections": 0
+            }
+            
+            # 从上次读取的位置开始读取新增事件，主要处理流和stream事件
             with open(self.eve_json_path, 'r') as f:
                 # 跳过已经处理过的行
-                for _ in range(self.initial_line_count):
+                for _ in range(self.initial_line_count_online):
                     next(f, None)
                 
                 # 读取并处理事件
@@ -231,43 +326,8 @@ class TrafficAnalyzer:
                     try:
                         event = json.loads(line)
                         
-                        # 处理统计事件，提取数据包信息
-                        if event.get('event_type') == 'stats':
-                            stats = event.get('stats', {})
-                            stats_decoder = stats.get('decoder', {})
-                            stats_flow = stats.get('flow', {})
-                            stats_capture = stats.get('capture', {})
-
-                            # 提取总数据包数
-                            if 'pkts' in stats_decoder:
-                                self.traffic_stats["total_packets"] = stats_decoder['pkts']
-                                flow_stats["total_packets"] = stats_decoder['pkts']
-                            
-                            # 提取总字节数
-                            if 'bytes' in stats_decoder:
-                                self.traffic_stats["total_bytes"] = stats_decoder['bytes']
-
-                            # 提取所有的流量数
-                            if 'total' in stats_flow:
-                                self.traffic_stats["flow_count"] = stats_flow['total']
-                                flow_stats["total_flows"] = stats_flow['total']
-                                stream_stats["total_flows"] = stats_flow['total']
-
-                            # 提取分析的tcp流量数
-                            if 'tcp' in stats_flow:
-                                self.traffic_stats["tcp_flow_count"] = stats_flow['tcp']
-
-                            # 提取分析的udp流量数
-                            if 'udp' in stats_flow:
-                                self.traffic_stats["udp_flow_count"] = stats_flow['udp']                    
-
-                            # 提取内核丢包数
-                            if 'kernel_drop' in stats_capture:
-                                self.traffic_stats['kernel_drop'] = stats_capture['kernel_drop']
-                                
                         # 处理流事件，用于计算网络性能指标
-                        elif event.get('event_type') == 'flow':
-                            
+                        if event.get('event_type') == 'flow':
                             # 提取流信息
                             flow = event.get('flow', {})
                             proto = flow.get('proto', '')
@@ -289,31 +349,18 @@ class TrafficAnalyzer:
                                     duration_ms = (end_dt - start_dt).total_seconds() * 1000
                                     
                                     # 存储会话信息，用于后续计算平均RTT
-                                    session_id = f"{flow.get('src_ip')}:{flow.get('src_port')}-{flow.get('dest_ip')}:{flow.get('dest_port')}"
+                                    session_id = flow.get('flow_id')
                                     tcp_sessions[session_id] = duration_ms
                                 except (ValueError, TypeError) as e:
                                     logger.debug(f"无法解析流时间: {e}")
-                        
-                        # 处理stream事件，用于计算TCP健康度指标
-                        elif event.get('event_type') == 'stream':
-                            stream = event.get('stream', {})
-                            event_type = stream.get('event', '')
-                            
-                            # 检查是否为乱序包事件
-                            if event_type == 'out-of-order-packet':
-                                stream_stats["out_of_order"] += 1
-                            
-                            # 检查是否为重传事件
-                            elif event_type == 'retransmission':
-                                stream_stats["retransmissions"] += 1
                             
                     except json.JSONDecodeError:
                         logger.warning(f"无法解析JSON行: {line}")
                         continue
             
             # 更新初始行数，用于下次分析
-            self.initial_line_count += new_line_count
-            logger.debug(f"处理了{new_line_count}行新事件，当前eve.json总行数: {self.initial_line_count}")
+            self.initial_line_count_online += new_line_count
+            logger.debug(f"处理了{new_line_count}行新事件，当前eve.json总行数: {self.initial_line_count_online}")
             
             # 计算网络性能指标
             # 1. 平均往返时间 (RTT)
@@ -333,16 +380,11 @@ class TrafficAnalyzer:
                 bandwidth_utilization = min(100, (self.traffic_stats["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
                 self.network_metrics["bandwidth_utilization"] = round(bandwidth_utilization, 2)
             
-            # 计算TCP健康度指标（基于stream事件）
-            if stream_stats["total_flows"] > 0:
-                # 1. 重传比例（粗略计算）
-                retransmission_ratio = (stream_stats["retransmissions"] / stream_stats["total_flows"]) * 100
-                self.tcp_health["retransmission_ratio"] = round(retransmission_ratio, 2)
-                
-                # 2. 乱序比例（粗略计算）
-                out_of_order_ratio = (stream_stats["out_of_order"] / stream_stats["total_flows"]) * 100
-                self.tcp_health["out_of_order_ratio"] = round(out_of_order_ratio, 2)
-            
+            # 4. 丢包率
+            if self.traffic_stats.get("total_packets", 0) > 0:
+                kernel_drop_ratio = (self.traffic_stats["kernel_drop"] / self.traffic_stats["total_packets"]) * 100
+                self.network_metrics["kernel_drop_ratio"] = round(kernel_drop_ratio, 2)
+
             # 更新最后读取时间
             self.last_read_time = analysis_start_time
             
@@ -365,7 +407,7 @@ class TrafficAnalyzer:
         
         # 创建基础结果数据结构
         result = ResultStructure.create_base_result()
-        result["success"] = True
+        result["success"] = "True"
         
         # 添加流量统计数据
         result["traffic_stats"] = self.traffic_stats.copy()
@@ -375,17 +417,6 @@ class TrafficAnalyzer:
         
         # 添加TCP健康度指标
         result["tcp_health"] = self.tcp_health.copy()
-        
-        # 添加告警信息
-        result["alerts"] = self.alerts.copy()
-        result["alert_count"] = self.alert_count
-        
-        # 添加运行状态
-        result["analyzer_status"] = {
-            "running": self.running,
-            "last_update": self.last_read_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_read_time else None,
-            "processed_lines": self.initial_line_count
-        }
         
         return result
     
@@ -481,9 +512,10 @@ class TrafficAnalyzer:
                     "total_packets": 0
                 }
                 
-                # 重置分析器状态，以便正确处理离线分析结果
-                self.alerts = []
-                self.alert_count = 0
+                # 离线分析不应影响分析器的内部状态
+                # 创建本地变量存储分析结果
+                alerts = []
+                alert_count = 0
                 
                 # 读取eve.json文件，只处理新增的行
                 with open(eve_json, 'r') as f:
@@ -507,11 +539,10 @@ class TrafficAnalyzer:
                                 # 将Suricata告警转换为标准格式
                                 alert_data = AlertStructure.from_suricata_alert(event)
                                 
-                                # 添加到告警列表（同时更新内部状态）
+                                # 添加到告警列表（仅更新结果对象，不影响内部状态）
                                 result["alerts"].append(alert_data)
                                 result["alert_count"] += 1
-                                self.alerts.append(alert_data)
-                                self.alert_count += 1
+                                alerts.append(alert_data)
                                 
                                 # 如果提供了回调函数，调用它
                                 if callback and callable(callback):
@@ -529,28 +560,23 @@ class TrafficAnalyzer:
                                 if 'pkts' in stats_decoder:
                                     result["traffic_stats"]["total_packets"] = stats_decoder['pkts']
                                     flow_stats["total_packets"] = stats_decoder['pkts']
-                                    self.traffic_stats["total_packets"] = stats_decoder['pkts']
                                 
                                 # 提取总字节数
                                 if 'bytes' in stats_decoder:
                                     result["traffic_stats"]["total_bytes"] = stats_decoder['bytes']
-                                    self.traffic_stats["total_bytes"] = stats_decoder['bytes']
 
                                 # 提取所有的流量数
                                 if 'total' in stats_flow:
                                     result["traffic_stats"]["flow_count"] = stats_flow['total']
                                     flow_stats["total_flows"] = stats_flow['total']
-                                    self.traffic_stats["flow_count"] = stats_flow['total']
 
                                 # 提取分析的tcp流量数
                                 if 'tcp' in stats_flow:
                                     result["traffic_stats"]["tcp_flow_count"] = stats_flow['tcp']
-                                    self.traffic_stats["tcp_flow_count"] = stats_flow['tcp']
 
                                 # 提取分析的udp流量数
                                 if 'udp' in stats_flow:
-                                    result["traffic_stats"]["udp_flow_count"] = stats_flow['udp']
-                                    self.traffic_stats["udp_flow_count"] = stats_flow['udp']                    
+                                    result["traffic_stats"]["udp_flow_count"] = stats_flow['udp']                    
                                 
                                 logger.info(f"提取到数据包统计信息: 总数据包={result['traffic_stats']['total_packets']}")
                             
@@ -594,23 +620,20 @@ class TrafficAnalyzer:
                     avg_rtt = sum(tcp_sessions.values()) / len(tcp_sessions)
                     result["network_metrics"] = result.get("network_metrics", {}) or {}
                     result["network_metrics"]["avg_rtt"] = round(avg_rtt, 2)
-                    self.network_metrics["avg_rtt"] = round(avg_rtt, 2)
                 
                 # 2. 连接失败率
                 if flow_stats["total_flows"] > 0:
                     connection_failure_rate = (flow_stats["failed_connections"] / flow_stats["total_flows"]) * 100
                     result["network_metrics"] = result.get("network_metrics", {}) or {}
                     result["network_metrics"]["connection_failure_rate"] = round(connection_failure_rate, 2)
-                    self.network_metrics["connection_failure_rate"] = round(connection_failure_rate, 2)
                 
                 # 3. 带宽利用率（这需要额外信息，这里使用一个估计值）
                 # 假设带宽利用率与数据包数量和字节数有关
-                if self.traffic_stats.get("total_bytes", 0) > 0:
+                if result["traffic_stats"].get("total_bytes", 0) > 0:
                     # 这里使用一个简化的计算方法，实际应用中可能需要更复杂的算法
-                    bandwidth_utilization = min(100, (self.traffic_stats["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
+                    bandwidth_utilization = min(100, (result["traffic_stats"]["total_bytes"] / (1024 * 1024)) * 5)  # 简化计算
                     result["network_metrics"] = result.get("network_metrics", {}) or {}
                     result["network_metrics"]["bandwidth_utilization"] = round(bandwidth_utilization, 2)
-                    self.network_metrics["bandwidth_utilization"] = round(bandwidth_utilization, 2)
                 
                 # 计算TCP健康度指标
                 if tcp_stats["total_packets"] > 0:
@@ -618,12 +641,10 @@ class TrafficAnalyzer:
                     retransmission_ratio = (tcp_stats["retransmissions"] / tcp_stats["total_packets"]) * 100
                     result["tcp_health"] = result.get("tcp_health", {}) or {}
                     result["tcp_health"]["retransmission_ratio"] = round(retransmission_ratio, 2)
-                    self.tcp_health["retransmission_ratio"] = round(retransmission_ratio, 2)
                     
                     # 2. 乱序比例
                     out_of_order_ratio = (tcp_stats["out_of_order"] / tcp_stats["total_packets"]) * 100
                     result["tcp_health"]["out_of_order_ratio"] = round(out_of_order_ratio, 2)
-                    self.tcp_health["out_of_order_ratio"] = round(out_of_order_ratio, 2)
                     
                     # 3. 重复ACK比例
                     duplicate_ack_ratio = (tcp_stats["duplicate_acks"] / tcp_stats["total_packets"]) * 100
@@ -639,14 +660,9 @@ class TrafficAnalyzer:
                     avg_reassembly_time = sum(tcp_stats["reassembly_times"]) / len(tcp_stats["reassembly_times"])
                     result["tcp_health"]["avg_reassembly_time"] = round(avg_reassembly_time, 2)
                     
-                # 更新最后读取时间
-                self.last_read_time = datetime.now()
+                # 离线分析不更新最后读取时间
                 
-                # 更新类的其他属性
-                # self.total_packets = result["traffic_stats"].get("total_packets", 0)
-                # self.total_bytes = result["traffic_stats"].get("total_bytes", 0)
-                # # 存储检测到的告警
-                # self.detected_alerts = result.get("alerts", [])
+                # 离线分析不更新类的内部属性
             except Exception as e:
                 logger.error(f"处理分析结果时发生错误: {e}")
                 return {"success": False, "error": str(e)}
@@ -677,10 +693,10 @@ class TrafficAnalyzer:
             if "total_packets" not in result['traffic_stats'] or result["traffic_stats"]["total_packets"] == 0:
                 # 如果无法从日志中获取，尝试从pcap文件名中提取（如果文件名中包含数据包数量信息）
                 logger.warning("无法从日志中获取数据包统计信息，使用默认值")
-            result["success"] = True
+            result["success"] = "True"
 
-            # 返回get_statistics方法的结果，确保返回的是最新的累计统计数据
-            return self.get_statistics()
+            # 返回result
+            return result
             
         except Exception as e:
             logger.error(f"离线分析过程中发生错误: {e}")
