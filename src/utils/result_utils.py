@@ -61,7 +61,6 @@ class ResultStructure:
             # 网络性能指标
             "network_metrics": {
                 "avg_rtt": 0.0,                 # 平均往返时间(ms)
-                "connection_failure_rate": 0.0, # 连接失败率
                 "kernel_drop_ratio": 0.0,       # 内核丢包率(%)
                 "bandwidth_utilization": 0.0,   # 带宽利用率
             },

@@ -292,14 +292,14 @@ class TrafficAnalyzer:
                 # 更新TCP健康度指标
                 tcp = counters.get("tcp", {})
                 if tcp:
-                    session_reuse_ratio = (tcp['ssn_from_cache'] + tcp['ssn_from_pool']) / tcp['sessions']  
-                    self.tcp_health["session_reuse_ratio"] = session_reuse_ratio
+                    session_reuse_ratio = (tcp['ssn_from_cache'] + tcp['ssn_from_pool']) / tcp['sessions'] * 100
+                    self.tcp_health["session_reuse_ratio"] = round(session_reuse_ratio,2)
                     # 异常ACK比例（需监控基线）
-                    abnormal_ack_ratio = tcp['ack_unseen_data'] / tcp['sessions']  
-                    self.tcp_health["abnormal_ack_ratio"] = abnormal_ack_ratio
+                    abnormal_ack_ratio = tcp['ack_unseen_data'] / tcp['sessions']  * 100
+                    self.tcp_health["abnormal_ack_ratio"] = round(abnormal_ack_ratio,2)
                     # 重组失败率（理想为0）
-                    reassembly_fail_rate = tcp['reassembly_gap'] / tcp['sessions']  
-                    self.tcp_health["reassembly_fail_rate"] = reassembly_fail_rate
+                    reassembly_fail_rate = tcp['reassembly_gap'] / tcp['sessions'] * 100
+                    self.tcp_health["reassembly_fail_rate"] = round(reassembly_fail_rate,2)
 
             # 以上是通过suricatasc获取的实时计数器数据，以下是通过分析eve.json文件获取的流和stream事件数据
             

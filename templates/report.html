@@ -440,15 +440,11 @@
             </tr>
             <tr>
                 <td>丢包率</td>
-                <td>{{ data.network_metrics.packet_loss_ratio }}%</td>
+                <td>{{ data.network_metrics.kernel_drop_ratio }}%</td>
             </tr>
             <tr>
                 <td>带宽利用率</td>
                 <td>{{ data.network_metrics.bandwidth_utilization }}%</td>
-            </tr>
-            <tr>
-                <td>连接失败率</td>
-                <td>{{ data.network_metrics.connection_failure_rate }}%</td>
             </tr>
             {% endif %}
         </table>
@@ -462,12 +458,16 @@
             </tr>
             {% if data.tcp_health %}
             <tr>
-                <td>重传比例</td>
-                <td>{{ data.tcp_health.retransmission_ratio }}%</td>
+                <td>tcp会话重用率</td>
+                <td>{{ data.tcp_health.session_reuse_ratio }}%</td>
             </tr>
             <tr>
-                <td>乱序比例</td>
-                <td>{{ data.tcp_health.out_of_order_ratio }}%</td>
+                <td>异常ack比例</td>
+                <td>{{ data.tcp_health.abnormal_ack_ratio }}%</td>
+            </tr>
+            <tr>
+                <td>重组失败率</td>
+                <td>{{ data.tcp_health.reassembly_fail_rate }}%</td>
             </tr>
             {% endif %}
         </table>

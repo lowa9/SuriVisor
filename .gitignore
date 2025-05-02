@@ -11,7 +11,6 @@ data/flows
 data/anomalies
 data/alerts
 src/ui/dashboard/node_modules
-docs
 venv
 etc
 config/rules/suricata.rules
